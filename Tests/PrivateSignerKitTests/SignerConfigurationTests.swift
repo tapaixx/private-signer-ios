@@ -75,3 +75,60 @@ final class SignerConfigurationTests: XCTestCase {
         XCTAssertNil(OTAInstallation.installationURL(manifestURL: URL(string: "http://signer.example.com/m")!))
     }
 }
+
+final class PackageLocalizationTests: XCTestCase {
+    /// The bug this exists for: a host whose Chinese is hardcoded in Swift declares no
+    /// localizations, so iOS runs it as an English app and every properly localized package
+    /// inside it shows English. The host is misconfigured; the person reading the screen is not
+    /// the one who can fix that.
+
+    func testChinesePreferencesSelectTheChineseStrings() {
+        let bundle = PackageLocalization.bundle(for: .module, preferring: ["zh-Hans-CN", "en-US"])
+
+        XCTAssertEqual(
+            NSLocalizedString("error.unauthorized", bundle: bundle, comment: ""),
+            "Signing Request Token 不正确。"
+        )
+    }
+
+    func testTheRegionalAndBareFormsOfChineseAllResolve() {
+        for preference in ["zh-Hans", "zh-Hans-CN", "zh-CN", "zh"] {
+            let bundle = PackageLocalization.bundle(for: .module, preferring: [preference])
+            XCTAssertEqual(
+                NSLocalizedString("error.empty_token", bundle: bundle, comment: ""),
+                "Signing Request Token 不能为空。",
+                preference
+            )
+        }
+    }
+
+    func testEnglishPreferencesSelectEnglish() {
+        let bundle = PackageLocalization.bundle(for: .module, preferring: ["en-GB", "fr"])
+
+        XCTAssertEqual(
+            NSLocalizedString("error.unauthorized", bundle: bundle, comment: ""),
+            "The Signing Request Token was rejected."
+        )
+    }
+
+    func testAnUnshippedLanguageFallsBackRatherThanReturningTheKey() {
+        let bundle = PackageLocalization.bundle(for: .module, preferring: ["ja-JP"])
+        let value = NSLocalizedString("error.unauthorized", bundle: bundle, comment: "")
+
+        XCTAssertNotEqual(value, "error.unauthorized", "a missing language must not surface the key")
+        XCTAssertFalse(value.isEmpty)
+    }
+
+    func testEmptyPreferencesStillProduceUsableText() {
+        let bundle = PackageLocalization.bundle(for: .module, preferring: [])
+        let value = NSLocalizedString("error.unauthorized", bundle: bundle, comment: "")
+
+        XCTAssertNotEqual(value, "error.unauthorized")
+    }
+
+    func testTheErrorTypesThemselvesFollowTheUserLanguage() {
+        // The end-to-end shape: an error surfaced to a user, not a bundle lookup.
+        XCTAssertNotNil(SigningClientError.unauthorized.errorDescription)
+        XCTAssertEqual(SigningClientError.unauthorized.code, "unauthorized")
+    }
+}

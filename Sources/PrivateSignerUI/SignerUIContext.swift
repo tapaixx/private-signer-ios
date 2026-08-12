@@ -32,8 +32,12 @@ public struct SignerUIContext {
 }
 
 enum UIStrings {
+    /// Resolved once against the user's language, not the host app's declared localizations.
+    /// See `PackageLocalization`.
+    private static let bundle = PackageLocalization.bundle(for: .module)
+
     static func string(_ key: String, _ arguments: CVarArg...) -> String {
-        let format = NSLocalizedString(key, bundle: .module, comment: "")
+        let format = NSLocalizedString(key, bundle: bundle, comment: "")
         guard !arguments.isEmpty else { return format }
         return String(format: format, arguments: arguments)
     }
