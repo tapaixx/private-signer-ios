@@ -1,0 +1,12 @@
+"release.invalid_current_version" = "The installed version string could not be parsed: %@";
+"release.invalid_response" = "GitHub Releases returned data that could not be parsed.";
+"release.no_valid_release" = "No published release carried a recognizable version string.";
+"release.missing_asset" = "Release %@ does not contain a matching IPA asset.";
+"release.network" = "Update check failed: %@";
+
+"update.not_configured" = "The signing service is not configured yet.";
+"update.missing_bundle_identifier" = "No Bundle ID is available, so a signed update cannot be requested.";
+"update.unauthorized" = "Signing authentication failed. Check the Worker URL and Signing Request Token.";
+"update.unexpected_bundle_identifier" = "The signed build's Bundle ID does not match the request: expected %1$@, got %2$@.";
+"update.invalid_manifest" = "The signing service did not return a valid HTTPS OTA manifest.";
+"update.network" = "The signed update request failed: %@";

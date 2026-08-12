@@ -1,0 +1,18 @@
+"error.invalid_worker_url" = "The Worker address must be a valid HTTPS URL.";
+"error.empty_token" = "The Signing Request Token cannot be empty.";
+"error.keychain" = "Could not access the signing configuration Keychain (%@).";
+"error.invalid_stored_data" = "The stored signing configuration could not be decoded.";
+
+"error.invalid_url" = "Could not build the signing request URL.";
+"error.invalid_response" = "The signing service returned data that could not be parsed.";
+"error.unauthorized" = "The Signing Request Token was rejected.";
+"error.source_too_large" = "The IPA exceeds the current 100 MB limit.";
+"error.server" = "Signing service error (HTTP %1$@): %2$@";
+"error.unknown" = "Unknown error";
+
+"verify.usable" = "The signing service is reachable and authenticated.";
+"verify.usable_undeclared_contract" = "The signing service works but does not declare a contract version; it may be an older deployment.";
+"verify.not_a_signer" = "That address responded, but it is not a Private IPA Signer. Check the Worker URL.";
+"verify.unsupported_contract" = "The signing service speaks contract %@, which this SDK does not support. Upgrade one side.";
+"verify.invalid_token" = "The address is correct, but the Signing Request Token was rejected.";
+"verify.unreachable" = "Could not reach the signing service: %@";

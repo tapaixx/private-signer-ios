@@ -1,0 +1,18 @@
+"error.invalid_worker_url" = "Worker 地址必须是有效的 HTTPS 地址。";
+"error.empty_token" = "Signing Request Token 不能为空。";
+"error.keychain" = "无法访问签名配置钥匙串（%@）。";
+"error.invalid_stored_data" = "钥匙串中的签名配置无法解析。";
+
+"error.invalid_url" = "无法组成私人签名请求地址。";
+"error.invalid_response" = "私人签名服务返回了无法解析的数据。";
+"error.unauthorized" = "Signing Request Token 不正确。";
+"error.source_too_large" = "IPA 超过当前 100 MB 上限。";
+"error.server" = "私人签名服务错误（HTTP %1$@）：%2$@";
+"error.unknown" = "未知错误";
+
+"verify.usable" = "签名服务可用。";
+"verify.usable_undeclared_contract" = "签名服务可用，但没有声明接口版本，可能是较旧的部署。";
+"verify.not_a_signer" = "该地址有响应，但不是 Private IPA Signer。请检查 Worker 地址。";
+"verify.unsupported_contract" = "签名服务的接口版本（%@）不被当前 SDK 支持，请升级其中一端。";
+"verify.invalid_token" = "地址正确，但 Signing Request Token 被拒绝。";
+"verify.unreachable" = "无法连接签名服务：%@";

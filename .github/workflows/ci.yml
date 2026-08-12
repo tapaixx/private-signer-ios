@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test (macOS host)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build
+        run: swift build -v
+
+      - name: Test
+        run: swift test -v
+
+  ios:
+    name: Typecheck for iOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build every product for iOS
+        run: |
+          xcodebuild build \
+            -scheme PrivateSigner-Package \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || exit ${PIPESTATUS[0]}

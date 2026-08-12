@@ -1,0 +1,12 @@
+"release.invalid_current_version" = "当前版本号无法解析：%@";
+"release.invalid_response" = "GitHub Releases 返回了无法识别的数据。";
+"release.no_valid_release" = "没有找到版本号格式可识别的正式 Release。";
+"release.missing_asset" = "Release %@ 中没有找到匹配的 IPA 附件。";
+"release.network" = "检查更新失败：%@";
+
+"update.not_configured" = "尚未配置签名服务，无法请求签名更新。";
+"update.missing_bundle_identifier" = "没有可用的 Bundle ID，无法请求签名更新。";
+"update.unauthorized" = "签名鉴权失败，请检查 Worker 地址和 Signing Request Token。";
+"update.unexpected_bundle_identifier" = "签名结果的 Bundle ID 与请求不一致：期望 %1$@，实际 %2$@。";
+"update.invalid_manifest" = "签名服务没有返回有效的 HTTPS OTA manifest。";
+"update.network" = "签名更新请求失败：%@";
