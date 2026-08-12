@@ -16,7 +16,7 @@ final class SigningClientTests: XCTestCase {
         )
     }
 
-    func testCreateProjectJobUsesV3IdentifiersAndOnlySigningOptions() async throws {
+    func testCreateProjectJobUsesV2IdentifiersAndOnlySigningOptions() async throws {
         let transport = RecordingTransport(response: """
         {"job_id":"00000000-0000-4000-8000-000000000001","status":"queued","signing_mode":"split"}
         """)
@@ -32,17 +32,17 @@ final class SigningClientTests: XCTestCase {
 
         let job = try await client.createProjectJob(
             projectID: "location-spoofer",
-            versionID: "1.0.5-0008",
+            versionID: "1.0.5-0010",
             options: options
         )
 
         XCTAssertEqual(job.jobID, "00000000-0000-4000-8000-000000000001")
         let request = try XCTUnwrap(transport.requests.first)
-        XCTAssertEqual(request.url?.path, "/v3/sign/jobs")
+        XCTAssertEqual(request.url?.path, "/v2/sign/jobs")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer request-token")
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any])
         XCTAssertEqual(payload["project_id"] as? String, "location-spoofer")
-        XCTAssertEqual(payload["version_id"] as? String, "1.0.5-0008")
+        XCTAssertEqual(payload["version_id"] as? String, "1.0.5-0010")
         XCTAssertEqual(payload["profile_id"] as? String, "profile-set-a")
         XCTAssertEqual(payload["target_bundle_id"] as? String, "com.example.clone")
         XCTAssertNil(payload["source_url"])
@@ -64,17 +64,17 @@ final class SigningClientTests: XCTestCase {
             "sync_enabled":true,
             "last_synced_at":"2026-08-12T10:00:00Z"
           },
-          "current_version":"1.0.5-0008",
+          "current_version":"1.0.5-0009",
           "current_known":true,
           "update_available":true,
           "target_version": {
             "project_id":"location-spoofer",
-            "version_id":"1.0.5-0009",
-            "version":"1.0.5-0009",
-            "tag":"v1.0.5-0009",
+            "version_id":"1.0.5-0010",
+            "version":"1.0.5-0010",
+            "tag":"v1.0.5-0010",
             "release_id":12,
             "asset_id":34,
-            "asset_name":"Location-Spoofer-v1.0.5-0009-unsigned.ipa",
+            "asset_name":"Location-Spoofer-v1.0.5-0010-unsigned.ipa",
             "size":1234,
             "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "digest_status":"verified",
@@ -93,18 +93,18 @@ final class SigningClientTests: XCTestCase {
         """)
         let client = makeClient(transport: transport)
 
-        let update = try await client.projectUpdate(projectID: "location-spoofer", currentVersion: "1.0.5-0008")
+        let update = try await client.projectUpdate(projectID: "location-spoofer", currentVersion: "1.0.5-0009")
 
         XCTAssertTrue(update.updateAvailable)
-        XCTAssertEqual(update.targetVersion?.versionID, "1.0.5-0009")
+        XCTAssertEqual(update.targetVersion?.versionID, "1.0.5-0010")
         XCTAssertEqual(update.profiles.first?.id, "profile-set-a")
         XCTAssertTrue(update.profiles.first?.isDefault == true)
         let request = try XCTUnwrap(transport.requests.first)
-        XCTAssertEqual(request.url?.path, "/v3/projects/location-spoofer/update")
-        XCTAssertEqual(request.url?.query, "current_version=1.0.5-0008")
+        XCTAssertEqual(request.url?.path, "/v2/projects/location-spoofer/update")
+        XCTAssertEqual(request.url?.query, "current_version=1.0.5-0009")
     }
 
-    func testGenericURLJobUsesV3AndExplicitProfile() async throws {
+    func testGenericURLJobUsesV2AndExplicitProfile() async throws {
         let transport = RecordingTransport(response: """
         {"job_id":"00000000-0000-4000-8000-000000000002","status":"queued","signing_mode":"split"}
         """)
@@ -114,13 +114,13 @@ final class SigningClientTests: XCTestCase {
             options: SigningOptions(profileID: "profile-set-a")
         )
         let request = try XCTUnwrap(transport.requests.first)
-        XCTAssertEqual(request.url?.path, "/v3/sign/jobs")
+        XCTAssertEqual(request.url?.path, "/v2/sign/jobs")
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any])
         XCTAssertEqual(payload["source_url"] as? String, "https://downloads.example/App.ipa")
         XCTAssertEqual(payload["profile_id"] as? String, "profile-set-a")
     }
 
-    func testUploadUsesV3RoutesBeforeCreatingJob() async throws {
+    func testUploadUsesV2RoutesBeforeCreatingJob() async throws {
         let transport = RecordingTransport(responses: [
             "{\"upload_id\":\"00000000-0000-4000-8000-000000000003\",\"part_size\":8388608,\"max_bytes\":104857600,\"expires_at\":\"2026-08-12T00:00:00Z\"}",
             "{\"upload_id\":\"00000000-0000-4000-8000-000000000003\",\"part_number\":1,\"etag\":\"etag-1\"}",
@@ -136,14 +136,14 @@ final class SigningClientTests: XCTestCase {
         )
 
         XCTAssertEqual(transport.requests.map { $0.url?.path }, [
-            "/v3/uploads",
-            "/v3/uploads/00000000-0000-4000-8000-000000000003/parts/1",
-            "/v3/uploads/00000000-0000-4000-8000-000000000003/complete",
-            "/v3/sign/jobs",
+            "/v2/uploads",
+            "/v2/uploads/00000000-0000-4000-8000-000000000003/parts/1",
+            "/v2/uploads/00000000-0000-4000-8000-000000000003/complete",
+            "/v2/sign/jobs",
         ])
     }
 
-    func testHistoryFollowsEveryCursorPageOnV3() async throws {
+    func testHistoryFollowsEveryCursorPageOnV2() async throws {
         let transport = RecordingTransport(responses: [
             "{\"jobs\":[{\"job_id\":\"00000000-0000-4000-8000-000000000010\",\"status\":\"completed\"}],\"next_cursor\":\"page-2\"}",
             "{\"jobs\":[{\"job_id\":\"00000000-0000-4000-8000-000000000011\",\"status\":\"failed\"}],\"next_cursor\":null}",
@@ -156,7 +156,7 @@ final class SigningClientTests: XCTestCase {
             "00000000-0000-4000-8000-000000000010",
             "00000000-0000-4000-8000-000000000011",
         ])
-        XCTAssertEqual(transport.requests.first?.url?.path, "/v3/sign/jobs")
+        XCTAssertEqual(transport.requests.first?.url?.path, "/v2/sign/jobs")
         XCTAssertEqual(transport.requests[1].url?.query, "cursor=page-2")
     }
 
