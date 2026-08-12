@@ -1,18 +1,8 @@
 import Foundation
 import PrivateSignerKit
 
-/// What a self-update run is aiming at.
-///
-/// The two cases exist because they have different outcomes on the home screen, and a plain
-/// `String?` parameter cannot say which one the caller meant. Passing a different Bundle ID by
-/// accident installs a second copy of the app while the old one keeps running — the caller has
-/// to name that outcome to get it.
 public enum SelfUpdateTarget: Equatable {
-    /// Replace the running app. The signed build keeps the installed Bundle ID, so iOS treats it
-    /// as an upgrade.
     case installedApp
-    /// Install a separately identified copy next to the running app. Used for multi-instance
-    /// setups and for testing a build without losing the working one.
     case sideBySideClone(bundleID: String)
 }
 
@@ -25,6 +15,7 @@ public enum SelfUpdateError: LocalizedError, Equatable {
     case network(String)
     case signatureNotReadable
     case sourceForCurrentVersionUnavailable(String)
+    case projectHasNoSignableVersion
 
     public var code: String {
         switch self {
@@ -36,6 +27,7 @@ public enum SelfUpdateError: LocalizedError, Equatable {
         case .network: return "network"
         case .signatureNotReadable: return "signature_not_readable"
         case .sourceForCurrentVersionUnavailable: return "current_version_source_unavailable"
+        case .projectHasNoSignableVersion: return "project_has_no_signable_version"
         }
     }
 
@@ -57,6 +49,8 @@ public enum SelfUpdateError: LocalizedError, Equatable {
             return SelfUpdateStrings.string("update.signature_not_readable")
         case .sourceForCurrentVersionUnavailable(let version):
             return SelfUpdateStrings.string("update.current_version_source_unavailable", version)
+        case .projectHasNoSignableVersion:
+            return "项目当前没有可签名版本"
         }
     }
 }
@@ -64,29 +58,27 @@ public enum SelfUpdateError: LocalizedError, Equatable {
 public struct SelfUpdateResult: Equatable {
     public let job: SigningJob
     public let links: DeliveryLinks?
-    /// The Bundle ID the signed build will carry.
     public let targetBundleIdentifier: String
-    /// `false` means installing this build adds a second app instead of upgrading this one.
     public let willReplaceInstalledApp: Bool
 
     public var isReadyToInstall: Bool { links != nil }
 
-    /// The `itms-services://` URL to open once the job completes.
     public var installationURL: URL? {
         guard let links else { return nil }
         return OTAInstallation.installationURL(manifestURL: links.manifestURL)
     }
 }
 
-/// Drives the whole self-update flow: discover a newer build, request a signed copy of it, poll,
-/// and hand back an installable link.
+/// Project-aware self update coordinator.
+///
+/// The host identifies only itself (`projectID`) and its installed version. The Worker owns the
+/// release catalog, source IPA identity, profile binding, and latest-version decision.
 public struct SelfUpdateCoordinator {
     private let store: SignerConfigurationStore
-    private let releaseSource: ReleaseSource
+    private let projectID: String
     private let installedBundleIdentifier: String
     private let currentVersion: String
     private let userAgent: String
-    private let profileID: String?
     private let signingMode: SigningMode
     private let embeddedBundlePolicy: CompatibilityPolicy
     private let entitlementPolicy: CompatibilityPolicy
@@ -94,58 +86,83 @@ public struct SelfUpdateCoordinator {
 
     public init(
         store: SignerConfigurationStore,
-        releaseSource: ReleaseSource,
+        projectID: String,
         currentVersion: String,
         userAgent: String,
         installedBundleIdentifier: String = Bundle.main.bundleIdentifier ?? "",
-        profileID: String? = nil,
         signingMode: SigningMode = .split,
         embeddedBundlePolicy: CompatibilityPolicy = .stripUnsupported,
         entitlementPolicy: CompatibilityPolicy = .stripUnsupported,
         transport: SigningTransport? = nil
     ) {
         self.store = store
-        self.releaseSource = releaseSource
+        self.projectID = projectID
         self.currentVersion = currentVersion
         self.userAgent = userAgent
         self.installedBundleIdentifier = installedBundleIdentifier
-        self.profileID = profileID
         self.signingMode = signingMode
         self.embeddedBundlePolicy = embeddedBundlePolicy
         self.entitlementPolicy = entitlementPolicy
         self.transport = transport
     }
 
-    /// `nil` when the installed build is already current.
-    public func checkForUpdate() async throws -> ReleaseCandidate? {
-        try await releaseSource.latestRelease(currentVersion: currentVersion)
+    /// Returns the Worker's authoritative update decision, including the project's currently
+    /// selectable profiles. A rollback target is still an update when the Worker says so.
+    public func updateStatus() async throws -> ProjectUpdate {
+        let client = makeClient(try loadConfiguration())
+        do {
+            return try await client.update(projectID: projectID, currentVersion: currentVersion)
+        } catch SigningClientError.unauthorized {
+            throw SelfUpdateError.unauthorized
+        } catch {
+            throw SelfUpdateError.network(error.localizedDescription)
+        }
     }
 
-    /// Submits a Signing Request for `candidate` and reports the job's state right away. The job
-    /// is usually still queued at this point — poll with ``refresh(jobID:target:)``.
+    /// `nil` when the Worker says this installed build is already the desired version.
+    public func checkForUpdate() async throws -> ProjectVersion? {
+        let status = try await updateStatus()
+        return status.updateAvailable ? status.targetVersion : nil
+    }
+
+    public func profiles() async throws -> [ProfileCapability] {
+        let client = makeClient(try loadConfiguration())
+        do {
+            return try await client.profiles(projectID: projectID)
+        } catch SigningClientError.unauthorized {
+            throw SelfUpdateError.unauthorized
+        } catch {
+            throw SelfUpdateError.network(error.localizedDescription)
+        }
+    }
+
     public func requestSignedBuild(
-        of candidate: ReleaseCandidate,
-        target: SelfUpdateTarget = .installedApp
+        of version: ProjectVersion,
+        target: SelfUpdateTarget = .installedApp,
+        profileID: String? = nil
     ) async throws -> SelfUpdateResult {
+        guard version.projectID == projectID, version.isSignable else {
+            throw SelfUpdateError.projectHasNoSignableVersion
+        }
         let configuration = try loadConfiguration()
         let resolved = try resolvedBundleIdentifier(for: target)
         let client = makeClient(configuration)
-
         let options = SigningOptions(
             signingMode: signingMode,
             targetBundleIdentifier: resolved,
             profileID: profileID,
-            // A clone that does not carry the Stable Configuration Group cannot read the Worker
-            // URL and token it was signed with, so every signed build requests the same groups.
             keychainAccessGroups: store.authorizedAccessGroups,
             embeddedBundlePolicy: embeddedBundlePolicy,
-            entitlementPolicy: entitlementPolicy,
-            expectedSHA256: candidate.expectedSHA256
+            entitlementPolicy: entitlementPolicy
         )
 
         let created: SigningJob
         do {
-            created = try await client.createURLJob(sourceURL: candidate.ipaURL, options: options)
+            created = try await client.createProjectJob(
+                projectID: projectID,
+                versionID: version.versionID,
+                options: options
+            )
         } catch SigningClientError.unauthorized {
             throw SelfUpdateError.unauthorized
         } catch {
@@ -156,37 +173,35 @@ public struct SelfUpdateCoordinator {
         return try await finish(job: job, client: client, resolved: resolved)
     }
 
-    // MARK: - Signature renewal
-
-    /// The running app's own signature, or `nil` when there is no provisioning profile to read.
     public func installedSignature(bundle: Bundle = .main) -> InstalledSignature? {
         InstalledSignatureReader.read(bundle: bundle)
     }
 
-    /// Whether the installed signature runs out soon enough to act on.
-    ///
-    /// Deliberately separate from ``checkForUpdate()``. A signature expiring is not a new version,
-    /// and folding it into update discovery would make that method return a candidate whose
-    /// version equals the installed one — breaking every caller that reads a non-nil result as
-    /// "there is something newer".
     public func needsRenewal(within days: Double = 3, bundle: Bundle = .main) -> Bool {
         guard let signature = installedSignature(bundle: bundle) else { return false }
         return signature.expires(within: days)
     }
 
-    /// Re-signs the version that is already installed, because its signature is about to expire.
-    ///
-    /// This installs the same build again rather than a newer one. It is the only thing that
-    /// keeps an app signed with a seven-day free-account profile usable without a Mac — and even
-    /// then only while that profile itself is still valid.
-    public func requestRenewal(target: SelfUpdateTarget = .installedApp) async throws -> SelfUpdateResult {
-        guard let candidate = try await releaseSource.release(matching: currentVersion) else {
+    /// Re-signs the same Worker-owned ProjectVersion that is already installed.
+    public func requestRenewal(
+        target: SelfUpdateTarget = .installedApp,
+        profileID: String? = nil
+    ) async throws -> SelfUpdateResult {
+        let client = makeClient(try loadConfiguration())
+        let versions: [ProjectVersion]
+        do {
+            versions = try await client.versions(projectID: projectID)
+        } catch SigningClientError.unauthorized {
+            throw SelfUpdateError.unauthorized
+        } catch {
+            throw SelfUpdateError.network(error.localizedDescription)
+        }
+        guard let version = versions.first(where: { $0.version == currentVersion && $0.isSignable }) else {
             throw SelfUpdateError.sourceForCurrentVersionUnavailable(currentVersion)
         }
-        return try await requestSignedBuild(of: candidate, target: target)
+        return try await requestSignedBuild(of: version, target: target, profileID: profileID)
     }
 
-    /// Polls one job and re-checks the identity guarantee.
     public func refresh(jobID: String, target: SelfUpdateTarget = .installedApp) async throws -> SelfUpdateResult {
         let configuration = try loadConfiguration()
         let resolved = try resolvedBundleIdentifier(for: target)
@@ -207,8 +222,6 @@ public struct SelfUpdateCoordinator {
         client: SigningClient,
         resolved: String
     ) async throws -> SelfUpdateResult {
-        // Checked before the links are handed out: a build whose identity drifted must never
-        // reach an install prompt.
         if let returned = job.actualBundleIdentifier, returned != resolved {
             throw SelfUpdateError.unexpectedBundleIdentifier(expected: resolved, actual: returned)
         }
