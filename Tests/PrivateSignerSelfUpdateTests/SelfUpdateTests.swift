@@ -374,7 +374,9 @@ final class SignatureRenewalTests: XCTestCase {
             transport: RecordingTransport(response: json)
         )
 
-        XCTAssertNotNil(try await source.release(matching: "1.0.5-0006"))
+        let candidate = try await source.release(matching: "1.0.5-0006")
+
+        XCTAssertNotNil(candidate)
     }
 
     /// The invariant 0.1.1 callers depend on: a non-nil candidate means a newer version exists.
