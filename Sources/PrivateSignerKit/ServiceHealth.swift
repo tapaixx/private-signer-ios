@@ -3,11 +3,9 @@ import Foundation
 /// The unauthenticated `GET /health` response.
 public struct ServiceHealth: Decodable, Equatable {
     /// Contract identifiers this package speaks.
-    public static let supportedContracts: Set<String> = ["v2"]
+    public static let supportedContracts: Set<String> = ["v3"]
 
     public let ok: Bool
-    /// Absent on Workers deployed before the contract field existed. Treat as "probably fine,
-    /// cannot confirm" rather than as a failure.
     public let contract: String?
 
     public init(ok: Bool, contract: String?) {
@@ -19,9 +17,7 @@ public struct ServiceHealth: Decodable, Equatable {
 /// The outcome of checking a hand-entered Worker URL and token together.
 public enum ConfigurationVerification: Equatable {
     case usable
-    /// Reachable and authenticated, but the Worker does not declare a contract version.
     case usableWithUndeclaredContract
-    /// Reachable, but the response is not a Private IPA Signer health payload.
     case notASigner
     case unsupportedContract(String)
     case invalidToken
@@ -31,7 +27,6 @@ public enum ConfigurationVerification: Equatable {
         self == .usable || self == .usableWithUndeclaredContract
     }
 
-    /// Stable, non-localized identifier.
     public var code: String {
         switch self {
         case .usable: return "usable"
