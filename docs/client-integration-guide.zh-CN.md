@@ -38,7 +38,7 @@ Worker 地址和 Token 是**用户配置，不是构建配置**。公开仓库�
 Swift Package Manager：
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.1")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.2.0")
 ```
 
 用 `exact:` 而不是 `from:`。如果自更新是你唯一的发版通道，一个会自己漂移的依赖可能恰好破坏那个本来
@@ -50,7 +50,7 @@ Swift Package Manager：
 packages:
   PrivateSigner:
     url: https://github.com/nnnmdzz/private-signer-ios.git
-    exactVersion: 0.1.1
+    exactVersion: 0.2.0
 
 targets:
   YourApp:
@@ -248,6 +248,33 @@ if let installURL = result.installationURL {
 
 不要快于每 5 秒一次，只在 App 处于前台、且 `job.isActive` 时轮询。签名跑在真实的 macOS runner 上，
 紧凑轮询换不到任何东西，只会烧掉限流额度。
+
+---
+
+## 6b. 签名续期（Signature Renewal）
+
+**签名过期不是"有新版本"**，本包把两者严格分开。`checkForUpdate()` 的含义仍然是"有更新的版本"——
+把续期折进去会让它返回一个版本号等于当前版本的候选，从而破坏所有按这个语义写的调用方。
+
+```swift
+if let signature = PrivateSigning.coordinator.installedSignature() {
+    // 免费账号的 profile 只有 7 天，且任何 API 都续不了，只能用 Xcode 重新签发。
+    // 这种情况要直说，而不是给一个点了必然失败的按钮。
+    if signature.isShortLived && signature.expires(within: 3) {
+        show("签名 \(signature.daysRemaining.rounded()) 天后过期，需要用 Xcode 重新签发描述文件")
+    } else if PrivateSigning.coordinator.needsRenewal(within: 3) {
+        let result = try await PrivateSigning.coordinator.requestRenewal()   // 同一版本
+        // …轮询和安装与普通更新完全一致
+    }
+}
+```
+
+`requestRenewal()` 需要找到**当前已安装版本**对应的那个 release，这是 `ReleaseSource` 上的第二个查找。
+`GitHubReleaseSource` 已实现；自定义 source 不实现时默认返回 `nil`，续期会报
+`current_version_source_unavailable`，而不是以别的方式失败。
+
+**续期解决不了的事**：7 天 profile 意味着 App 每周都会失效，跟有没有新版本无关；而且每次续期最后仍然
+需要人手动点安装。如果你处在这个情况，正确的解法是买付费开发者账号，不是这个 API。
 
 ---
 

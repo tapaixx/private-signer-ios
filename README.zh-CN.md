@@ -25,7 +25,7 @@ English: [README.md](README.md)
 ## 安装
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.1")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.2.0")
 ```
 
 **锁精确版本。** 自更新链路一旦坏掉，是没法靠自更新修回来的。

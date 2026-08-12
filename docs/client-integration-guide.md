@@ -43,7 +43,7 @@ that compiles them in has leaked full signing authority.
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.1")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.2.0")
 ```
 
 Pin with `exact:`, not `from:`. If self-update is the only way you ship builds, a dependency that
@@ -55,7 +55,7 @@ For **XcodeGen** projects, add to `project.yml`:
 packages:
   PrivateSigner:
     url: https://github.com/nnnmdzz/private-signer-ios.git
-    exactVersion: 0.1.1
+    exactVersion: 0.2.0
 
 targets:
   YourApp:
@@ -267,6 +267,35 @@ Facts worth surfacing in your UI:
 Poll no faster than every 5 seconds, only while the app is in the foreground, and only while
 `job.isActive`. Signing runs on a real macOS runner; a tight loop buys nothing and burns rate
 limit.
+
+---
+
+## 6b. Signature renewal
+
+A signature expiring is not a new version, and this package keeps the two apart. `checkForUpdate()`
+still means "there is something newer" — folding renewal into it would make it return a candidate
+whose version equals the installed one, and break every caller that reads a non-nil result that way.
+
+```swift
+if let signature = PrivateSigning.coordinator.installedSignature() {
+    // Free-account profiles last 7 days and cannot be renewed by any API — only reissued by
+    // Xcode. Say so rather than offering a button that will fail.
+    if signature.isShortLived && signature.expires(within: 3) {
+        show("签名 \(signature.daysRemaining.rounded()) 天后过期，需要用 Xcode 重新签发描述文件")
+    } else if PrivateSigning.coordinator.needsRenewal(within: 3) {
+        let result = try await PrivateSigning.coordinator.requestRenewal()   // same version
+        // …poll and install exactly like an update
+    }
+}
+```
+
+`requestRenewal()` needs the release matching the **installed** version, which is a second lookup
+on `ReleaseSource`. `GitHubReleaseSource` implements it; a custom source that does not gets `nil`
+by default, and renewal reports `current_version_source_unavailable` rather than failing obscurely.
+
+What renewal does **not** solve: a seven-day profile means the app stops launching every week
+regardless of releases, and each renewal still ends with a human tapping install. If that is your
+situation, a paid Apple Developer membership is the fix, not this API.
 
 ---
 

@@ -59,6 +59,14 @@ A named set of stored Signer credentials, letting one installed application hold
 a staging configuration at the same time without re-entering either.
 _Avoid_: Profile, workspace, account
 
+**Signature Renewal**:
+Re-signing the version already installed because its signature is about to expire, rather than installing a newer one. Kept apart from In-Place Update because a caller reading a discovered candidate as "there is something newer" must stay right.
+_Avoid_: Refresh, re-sign, update
+
+**Installed Signature**:
+What the running app's own `embedded.mobileprovision` says about the signature it carries: when it expires, which profile produced it, and whether that profile is one Apple issues with a seven-day life.
+_Avoid_: Provisioning info, cert expiry, profile
+
 **Service Contract**:
 The interface version a Signer deployment declares on its unauthenticated health endpoint, used to
 tell "this address is not a Signer" apart from "this token is wrong".
@@ -130,6 +138,10 @@ _Avoid_: Profile slot, certificate name, signing identity
 The server-controlled requirement that a Profile ID's provisioning profiles cover the configured
 target devices, independent of caller input.
 _Avoid_: UDID list, allowed device, device filter
+
+**Profile Set**:
+The provisioning profiles that sign one root app and its embedded bundles together, selected as a unit by a Profile ID and the only scope a Device Gate is derived from.
+_Avoid_: Profile group, profile bundle, certificate profiles
 
 **Signing Mode**:
 The explicit identity policy for a Signing Job: Standard keeps bundle and application identities

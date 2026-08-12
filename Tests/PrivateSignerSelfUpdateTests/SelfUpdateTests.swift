@@ -386,11 +386,12 @@ final class SignatureRenewalTests: XCTestCase {
         [{"tag_name":"v1.0.5-0006","draft":false,"prerelease":false,"body":null,
           "assets":[{"name":"App-v1.0.5-0006-unsigned.ipa","browser_download_url":"https://example.com/6.ipa","digest":null}]}]
         """
+        // Two lookups, so the stub needs two responses.
         let source = GitHubReleaseSource(
             repository: "owner/name",
             assetNameTemplate: "App-{tag}-unsigned.ipa",
             userAgent: "TestApp/1.0.0",
-            transport: RecordingTransport(response: json)
+            transport: RecordingTransport(responses: [json, json])
         )
 
         let update = try await source.latestRelease(currentVersion: "v1.0.5-0006")

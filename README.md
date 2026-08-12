@@ -29,7 +29,7 @@ public while the signing service stays private.
 ## Install
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.1")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.2.0")
 ```
 
 Pin an exact version. A self-update path that breaks cannot be fixed by self-updating.
