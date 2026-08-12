@@ -33,10 +33,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build every product for iOS
+        # pipefail is load-bearing: without it xcpretty's exit code masks a failed build and this
+        # job reports green on code that does not compile.
         run: |
+          set -o pipefail
           xcodebuild build \
             -scheme PrivateSigner-Package \
             -destination 'generic/platform=iOS' \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty || exit ${PIPESTATUS[0]}
+            | xcpretty

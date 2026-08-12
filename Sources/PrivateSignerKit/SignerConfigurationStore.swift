@@ -161,8 +161,11 @@ public struct SignerConfigurationStore {
         if let firstFailure { throw SignerConfigurationError.keychain(firstFailure) }
     }
 
-    /// HTTPS only, no embedded credentials, no query or fragment, no trailing slash.
-    static func validatedWorkerURL(_ rawValue: String) throws -> URL {
+    /// Validates a hand-entered Worker URL without storing it: HTTPS only, no embedded
+    /// credentials, no query or fragment, no trailing slash.
+    ///
+    /// Public so a host can check what the user typed before committing it to the Keychain.
+    public static func validatedWorkerURL(_ rawValue: String) throws -> URL {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed),
               components.scheme?.lowercased() == "https",
