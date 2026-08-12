@@ -44,8 +44,8 @@ public enum SigningClientError: LocalizedError {
     }
 }
 
-/// The v3 client. Project signing uses Worker-managed immutable ProjectVersions. Generic URL and
-/// upload signing remain separate capabilities that a principal may or may not have.
+/// The single v2 client. Project signing uses Worker-managed ProjectVersions while generic URL and
+/// upload signing continue to use the established v2 Signing Job API and the same request token.
 public struct SigningClient {
     public static let maximumSourceBytes = 100 * 1024 * 1024
     public static let maximumPartBytes = 8 * 1024 * 1024
@@ -77,17 +77,17 @@ public struct SigningClient {
     // MARK: - Project catalog
 
     public func projects() async throws -> [SigningProject] {
-        let response: ProjectListResponse = try await send(path: "v3/projects", method: "GET")
+        let response: ProjectListResponse = try await send(path: "v2/projects", method: "GET")
         return response.projects
     }
 
     public func project(id: String) async throws -> ProjectDetail {
-        try await send(path: "v3/projects/\(encodedPathComponent(id))", method: "GET")
+        try await send(path: "v2/projects/\(encodedPathComponent(id))", method: "GET")
     }
 
     public func projectVersions(projectID: String) async throws -> [ProjectVersion] {
         let response: ProjectVersionsResponse = try await send(
-            path: "v3/projects/\(encodedPathComponent(projectID))/versions",
+            path: "v2/projects/\(encodedPathComponent(projectID))/versions",
             method: "GET"
         )
         return response.versions
@@ -96,17 +96,17 @@ public struct SigningClient {
     /// Asks the Worker, not the app, whether a newer version should be installed.
     public func projectUpdate(projectID: String, currentVersion: String) async throws -> ProjectUpdate {
         try await send(
-            path: "v3/projects/\(encodedPathComponent(projectID))/update",
+            path: "v2/projects/\(encodedPathComponent(projectID))/update",
             method: "GET",
             queryItems: [URLQueryItem(name: "current_version", value: currentVersion)]
         )
     }
 
-    /// Profiles visible to the current principal. Supplying a project filters the list by that
-    /// project's policy and marks its server-side default.
+    /// Profiles available to this v2 client. Supplying a project filters the list by that project's
+    /// server-side policy and marks its configured default.
     public func profiles(projectID: String? = nil) async throws -> [ProfileCapability] {
         let response: ProfileListResponse = try await send(
-            path: "v3/profiles",
+            path: "v2/profiles",
             method: "GET",
             queryItems: projectID.map { [URLQueryItem(name: "project_id", value: $0)] } ?? []
         )
@@ -123,14 +123,14 @@ public struct SigningClient {
         var payload = try encodedOptions(options)
         payload["project_id"] = projectID
         payload["version_id"] = versionID
-        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
     }
 
     /// Generic URL signing. Project self-update code should never call this method.
     public func createURLJob(sourceURL: URL, options: SigningOptions) async throws -> SigningJob {
         var payload = try encodedOptions(options)
         payload["source_url"] = sourceURL.absoluteString
-        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
     }
 
     public func uploadAndCreateJob(
@@ -140,7 +140,7 @@ public struct SigningClient {
     ) async throws -> SigningJob {
         guard data.count <= Self.maximumSourceBytes else { throw SigningClientError.sourceTooLarge }
         let session: UploadSessionResponse = try await send(
-            path: "v3/uploads",
+            path: "v2/uploads",
             method: "POST",
             json: ["filename": filename, "size": data.count]
         )
@@ -160,7 +160,7 @@ public struct SigningClient {
         try await completeUpload(uploadID: session.uploadID)
         var payload = try encodedOptions(options)
         payload["upload_id"] = session.uploadID
-        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
     }
 
     public func uploadAndCreateJob(fileURL: URL, options: SigningOptions) async throws -> SigningJob {
@@ -169,7 +169,7 @@ public struct SigningClient {
             throw SigningClientError.sourceTooLarge
         }
         let session: UploadSessionResponse = try await send(
-            path: "v3/uploads",
+            path: "v2/uploads",
             method: "POST",
             json: ["filename": values.name ?? fileURL.lastPathComponent, "size": size]
         )
@@ -186,13 +186,13 @@ public struct SigningClient {
         try await completeUpload(uploadID: session.uploadID)
         var payload = try encodedOptions(options)
         payload["upload_id"] = session.uploadID
-        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
     }
 
     // MARK: - Job lifecycle
 
     public func job(id: String) async throws -> SigningJob {
-        try await send(path: "v3/sign/jobs/\(encodedPathComponent(id))", method: "GET")
+        try await send(path: "v2/sign/jobs/\(encodedPathComponent(id))", method: "GET")
     }
 
     public func history() async throws -> [SigningJob] {
@@ -202,7 +202,7 @@ public struct SigningClient {
         repeat {
             let queryItems = cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
             let response: JobHistoryResponse = try await send(
-                path: "v3/sign/jobs",
+                path: "v2/sign/jobs",
                 method: "GET",
                 queryItems: queryItems
             )
@@ -217,15 +217,15 @@ public struct SigningClient {
     }
 
     public func retry(jobID: String) async throws -> SigningJob {
-        try await send(path: "v3/sign/jobs/\(encodedPathComponent(jobID))/retry", method: "POST", json: [:])
+        try await send(path: "v2/sign/jobs/\(encodedPathComponent(jobID))/retry", method: "POST", json: [:])
     }
 
     public func cancel(jobID: String) async throws -> SigningJob {
-        try await send(path: "v3/sign/jobs/\(encodedPathComponent(jobID))/cancel", method: "POST", json: [:])
+        try await send(path: "v2/sign/jobs/\(encodedPathComponent(jobID))/cancel", method: "POST", json: [:])
     }
 
     public func links(jobID: String) async throws -> DeliveryLinks {
-        try await send(path: "v3/sign/jobs/\(encodedPathComponent(jobID))/links", method: "POST", json: [:])
+        try await send(path: "v2/sign/jobs/\(encodedPathComponent(jobID))/links", method: "POST", json: [:])
     }
 
     // MARK: - Service identity
@@ -254,12 +254,9 @@ public struct SigningClient {
             return .unsupportedContract(contract)
         }
         do {
-            let _: ProjectListResponse = try await send(path: "v3/projects", method: "GET")
+            let _: ProjectListResponse = try await send(path: "v2/projects", method: "GET")
         } catch SigningClientError.unauthorized {
             return .invalidToken
-        } catch SigningClientError.server(let status, _) where status == 403 {
-            // The token authenticated but intentionally has no catalog scope. It is still a valid
-            // signer credential; capability enforcement happens on the operation itself.
         } catch {
             return .unreachable(error.localizedDescription)
         }
@@ -275,7 +272,7 @@ public struct SigningClient {
 
     private func uploadPart(uploadID: String, partNumber: Int, data: Data) async throws {
         var request = try authorizedRequest(
-            path: "v3/uploads/\(encodedPathComponent(uploadID))/parts/\(partNumber)",
+            path: "v2/uploads/\(encodedPathComponent(uploadID))/parts/\(partNumber)",
             method: "PUT"
         )
         request.httpBody = data
@@ -286,7 +283,7 @@ public struct SigningClient {
 
     private func completeUpload(uploadID: String) async throws {
         let _: UploadCompleteResponse = try await send(
-            path: "v3/uploads/\(encodedPathComponent(uploadID))/complete",
+            path: "v2/uploads/\(encodedPathComponent(uploadID))/complete",
             method: "POST",
             json: [:]
         )

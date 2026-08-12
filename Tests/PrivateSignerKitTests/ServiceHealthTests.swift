@@ -14,11 +14,11 @@ final class ServiceHealthTests: XCTestCase {
     }
 
     func testHealthProbeIsUnauthenticated() async throws {
-        let transport = RecordingTransport(response: #"{"ok":true,"contract":"v3"}"#)
+        let transport = RecordingTransport(response: #"{"ok":true,"contract":"v2","version":"2.1.0"}"#)
 
         let health = try await makeClient(transport).health()
 
-        XCTAssertEqual(health, ServiceHealth(ok: true, contract: "v3"))
+        XCTAssertEqual(health, ServiceHealth(ok: true, contract: "v2", version: "2.1.0"))
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.url?.path, "/health")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
@@ -35,7 +35,7 @@ final class ServiceHealthTests: XCTestCase {
 
     func testARejectedTokenIsReportedSeparatelyFromAWrongAddress() async {
         let transport = RecordingTransport(
-            responses: [#"{"ok":true,"contract":"v3"}"#, #"{"message":"nope"}"#],
+            responses: [#"{"ok":true,"contract":"v2"}"#, #"{"message":"nope"}"#],
             statusCodes: [200, 401]
         )
 
@@ -43,6 +43,7 @@ final class ServiceHealthTests: XCTestCase {
 
         XCTAssertEqual(verification, .invalidToken)
         XCTAssertFalse(verification.isUsable)
+        XCTAssertEqual(transport.requests.last?.url?.path, "/v2/projects")
     }
 
     func testAnUndeclaredContractStillCountsAsUsable() async {
@@ -57,11 +58,11 @@ final class ServiceHealthTests: XCTestCase {
     }
 
     func testAnUnknownContractIsRefusedBeforeTheTokenIsSent() async {
-        let transport = RecordingTransport(response: #"{"ok":true,"contract":"v2"}"#)
+        let transport = RecordingTransport(response: #"{"ok":true,"contract":"future"}"#)
 
         let verification = await makeClient(transport).verifyConfiguration()
 
-        XCTAssertEqual(verification, .unsupportedContract("v2"))
+        XCTAssertEqual(verification, .unsupportedContract("future"))
         XCTAssertEqual(transport.requests.count, 1)
     }
 
@@ -75,22 +76,13 @@ final class ServiceHealthTests: XCTestCase {
 
     func testAFullyWorkingSignerIsUsable() async {
         let transport = RecordingTransport(
-            responses: [#"{"ok":true,"contract":"v3"}"#, #"{"projects":[]}"#]
+            responses: [#"{"ok":true,"contract":"v2"}"#, #"{"projects":[]}"#]
         )
 
         let verification = await makeClient(transport).verifyConfiguration()
 
         XCTAssertEqual(verification, .usable)
         XCTAssertEqual(verification.code, "usable")
-    }
-
-    func testAuthenticatedTokenWithoutCatalogScopeIsStillAValidConfiguration() async {
-        let transport = RecordingTransport(
-            responses: [#"{"ok":true,"contract":"v3"}"#, #"{"error":"forbidden"}"#],
-            statusCodes: [200, 403]
-        )
-
-        let verification = await makeClient(transport).verifyConfiguration()
-        XCTAssertEqual(verification, .usable)
+        XCTAssertEqual(transport.requests.last?.url?.path, "/v2/projects")
     }
 }

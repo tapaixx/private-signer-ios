@@ -2,34 +2,27 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-A Swift package for iOS/iPadOS clients of [Private IPA Signer](https://github.com/nnnmdzz/private-signer).
-The v3 contract makes the Worker authoritative for projects, source versions, and signing profiles.
+A Swift package for iOS/iPadOS clients of [Private IPA Signer](https://github.com/nnnmdzz/private-signer). The package maintains **one service contract: v2**.
 
 ## Contract
 
-A project-aware app compiles only a stable `projectID`. It does **not** discover GitHub Releases,
-carry an IPA URL, or hard-code a provisioning profile ID. The Worker returns the latest
-`ProjectVersion` and the profiles the authenticated principal may use, and the SDK asks the Worker
-to sign that immutable version.
+A project-aware app compiles only a stable `projectID`. It does not discover GitHub Releases, carry an unsigned IPA URL, or hard-code a provisioning Profile ID. The Worker owns the project/version catalog and allowed/default Profile policy; the SDK asks it to sign a selected `ProjectVersion`.
 
-Generic URL/file signing remains available as a separate capability for principals that explicitly
-have `generic-url-sign` or `upload-sign` scope.
+All project discovery, Profile discovery, project signing, generic URL/upload signing, job history and delivery-link operations use `/v2/*` and the same `SIGNING_REQUEST_TOKEN` stored in the app configuration.
+
+There is no second client-token system. `personal-main` has no special meaning; Profile IDs come from Worker discovery.
 
 ## Products
 
 | Product | What it gives you |
 | --- | --- |
-| `PrivateSignerKit` | v3 configuration, project/version/profile discovery, project and generic signing jobs, delivery links, OTA URLs. |
+| `PrivateSignerKit` | v2 configuration, project/version/Profile discovery, project and generic signing jobs, delivery links, OTA URLs. |
 | `PrivateSignerSelfUpdate` | Worker-driven `SelfUpdateCoordinator`, renewal of the installed ProjectVersion, signature inspection. |
-| `PrivateSignerUI` | SwiftUI configuration, project self-update, profile Picker, and optional generic signing screens. |
+| `PrivateSignerUI` | SwiftUI configuration, project self-update, Profile Picker, and optional generic signing screens. |
 
 ## Install
 
-```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.3.0")
-```
-
-Pin an exact version. `0.3.0` is a breaking bug-fix release and requires a v3 Worker.
+Pin an immutable release/tag or commit approved by your app. During development, a fixed revision is preferred over a floating range.
 
 ## Minimal project self-update
 
@@ -65,18 +58,12 @@ if let candidate = try await coordinator.checkForUpdate() {
 }
 ```
 
-The unsigned IPA URL never enters this flow.
+The unsigned IPA URL never enters the self-update flow.
 
 ## Documentation
 
 - [Client integration guide](docs/client-integration-guide.md) · [中文](docs/client-integration-guide.zh-CN.md)
 - [API reference](docs/api-reference.md) · [中文](docs/api-reference.zh-CN.md)
-- [v3 contract notes](docs/v3-contract.md) · [中文](docs/v3-contract.zh-CN.md)
+- [v2 contract notes](docs/v2-contract.md) · [中文](docs/v2-contract.zh-CN.md)
 
-## Removed v2 assumptions
-
-`/v2`, `GitHubReleaseSource`, `ReleaseSource`, `SignerUIContext.defaultProfileID`, and the magic
-`personal-main` profile identifier are not part of this release.
-
-CI compiles the package and runs its unit tests. Real-device install/upgrade remains the final
-acceptance gate.
+CI compiles the package and runs its unit tests. Real-device install/upgrade remains the final acceptance gate.

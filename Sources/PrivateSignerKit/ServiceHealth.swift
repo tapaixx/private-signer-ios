@@ -2,15 +2,17 @@ import Foundation
 
 /// The unauthenticated `GET /health` response.
 public struct ServiceHealth: Decodable, Equatable {
-    /// Contract identifiers this package speaks.
-    public static let supportedContracts: Set<String> = ["v3"]
+    /// The single contract identifier this package speaks.
+    public static let supportedContracts: Set<String> = ["v2"]
 
     public let ok: Bool
     public let contract: String?
+    public let version: String?
 
-    public init(ok: Bool, contract: String?) {
+    public init(ok: Bool, contract: String?, version: String? = nil) {
         self.ok = ok
         self.contract = contract
+        self.version = version
     }
 }
 
