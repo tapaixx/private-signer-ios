@@ -38,7 +38,7 @@ Worker 地址和 Token 是**用户配置，不是构建配置**。公开仓库�
 Swift Package Manager：
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.0")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.1")
 ```
 
 用 `exact:` 而不是 `from:`。如果自更新是你唯一的发版通道，一个会自己漂移的依赖可能恰好破坏那个本来
@@ -50,7 +50,7 @@ Swift Package Manager：
 packages:
   PrivateSigner:
     url: https://github.com/nnnmdzz/private-signer-ios.git
-    exactVersion: 0.1.0
+    exactVersion: 0.1.1
 
 targets:
   YourApp:

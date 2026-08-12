@@ -43,7 +43,7 @@ that compiles them in has leaked full signing authority.
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.0")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.1.1")
 ```
 
 Pin with `exact:`, not `from:`. If self-update is the only way you ship builds, a dependency that
@@ -55,7 +55,7 @@ For **XcodeGen** projects, add to `project.yml`:
 packages:
   PrivateSigner:
     url: https://github.com/nnnmdzz/private-signer-ios.git
-    exactVersion: 0.1.0
+    exactVersion: 0.1.1
 
 targets:
   YourApp:
