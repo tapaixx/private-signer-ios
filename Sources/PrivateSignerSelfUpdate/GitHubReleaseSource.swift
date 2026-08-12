@@ -76,7 +76,7 @@ public struct GitHubReleaseSource: ReleaseSource {
         }
     }
 
-    public func latestRelease(currentVersion: String) async throws -> ReleaseCandidate? {
+    func fetchReleases() async throws -> [GitHubRelease] {
         guard let releasesURL = URL(
             string: "https://api.github.com/repos/\(repository)/releases?per_page=\(pageSize)"
         ) else {
@@ -97,12 +97,15 @@ public struct GitHubReleaseSource: ReleaseSource {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw GitHubReleaseSourceError.invalidResponse
         }
-        let releases: [GitHubRelease]
         do {
-            releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+            return try JSONDecoder().decode([GitHubRelease].self, from: data)
         } catch {
             throw GitHubReleaseSourceError.invalidResponse
         }
+    }
+
+    public func latestRelease(currentVersion: String) async throws -> ReleaseCandidate? {
+        let releases = try await fetchReleases()
 
         // A release the ordering cannot parse is skipped, not guessed at.
         let candidates = releases.filter { release in
@@ -131,6 +134,25 @@ public struct GitHubReleaseSource: ReleaseSource {
             ipaURL: asset.browserDownloadURL,
             expectedSHA256: normalizedSHA256(asset.digest),
             notes: latest.body
+        )
+    }
+
+    public func release(matching version: String) async throws -> ReleaseCandidate? {
+        let releases = try await fetchReleases()
+        // Matched through the ordering rather than by string equality, so `1.0.5-0006` and
+        // `v1.0.5-0006` are recognized as the same release.
+        guard let match = releases.first(where: { ordering.compare($0.tagName, version) == .orderedSame }) else {
+            return nil
+        }
+        let expectedName = Self.assetName(template: assetNameTemplate, tag: match.tagName)
+        guard let asset = match.assets.first(where: { $0.name == expectedName }) else {
+            throw GitHubReleaseSourceError.missingAsset(match.tagName)
+        }
+        return ReleaseCandidate(
+            version: match.tagName,
+            ipaURL: asset.browserDownloadURL,
+            expectedSHA256: normalizedSHA256(asset.digest),
+            notes: match.body
         )
     }
 

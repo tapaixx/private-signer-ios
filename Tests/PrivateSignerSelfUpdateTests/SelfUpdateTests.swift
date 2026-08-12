@@ -194,7 +194,7 @@ final class SelfUpdateTargetTests: XCTestCase {
     }
 }
 
-private struct StubReleaseSource: ReleaseSource {
+struct StubReleaseSource: ReleaseSource {
     func latestRelease(currentVersion: String) async throws -> ReleaseCandidate? { nil }
 }
 
@@ -231,5 +231,170 @@ final class RecordingTransport: SigningTransport, @unchecked Sendable {
             headerFields: ["Content-Type": "application/json"]
         )!
         return (Data(payload.utf8), response)
+    }
+}
+
+final class InstalledSignatureTests: XCTestCase {
+    private func wrapped(
+        expiresInDays: Double,
+        createdDaysAgo: Double = 65,
+        name: String = "Personal Profile",
+        team: String = "4JJ849C5Q2"
+    ) -> Data {
+        let plist: [String: Any] = [
+            "Name": name,
+            "UUID": "11111111-2222-3333-4444-555555555555",
+            "ExpirationDate": Date().addingTimeInterval(expiresInDays * 86_400),
+            "CreationDate": Date().addingTimeInterval(-createdDaysAgo * 86_400),
+            "Entitlements": [
+                "application-identifier": "\(team).com.example.app",
+                "com.apple.developer.team-identifier": team,
+            ],
+        ]
+        let payload = try! PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        // A CMS envelope wraps the plist; the parser has to find it rather than assume an offset.
+        var data = Data([0x30, 0x82, 0x0A, 0xBC, 0x06, 0x09])
+        data.append(Data(repeating: 0, count: 48))
+        data.append(payload)
+        data.append(Data(repeating: 0, count: 96))
+        return data
+    }
+
+    func testReadsTheProfileOutOfACMSEnvelope() throws {
+        let signature = try XCTUnwrap(InstalledSignatureReader.parse(wrapped(expiresInDays: 200)))
+
+        XCTAssertEqual(signature.profileName, "Personal Profile")
+        XCTAssertEqual(signature.teamIdentifier, "4JJ849C5Q2")
+        XCTAssertEqual(signature.applicationIdentifier, "4JJ849C5Q2.com.example.app")
+        XCTAssertFalse(signature.isExpired)
+        XCTAssertEqual(signature.daysRemaining, 200, accuracy: 0.1)
+    }
+
+    func testASevenDayProfileIsRecognizedAsUnrenewable() throws {
+        let signature = try XCTUnwrap(
+            InstalledSignatureReader.parse(wrapped(expiresInDays: 5, createdDaysAgo: 2))
+        )
+
+        XCTAssertTrue(signature.isShortLived)
+    }
+
+    func testAYearLongProfileIsNotShortLived() throws {
+        let signature = try XCTUnwrap(InstalledSignatureReader.parse(wrapped(expiresInDays: 200)))
+
+        XCTAssertFalse(signature.isShortLived)
+    }
+
+    func testExpiryWindowDrivesTheRenewalDecision() throws {
+        let soon = try XCTUnwrap(InstalledSignatureReader.parse(wrapped(expiresInDays: 2)))
+        let later = try XCTUnwrap(InstalledSignatureReader.parse(wrapped(expiresInDays: 30)))
+
+        XCTAssertTrue(soon.expires(within: 3))
+        XCTAssertFalse(later.expires(within: 3))
+    }
+
+    func testAnExpiredSignatureIsReportedAsExpired() throws {
+        let signature = try XCTUnwrap(InstalledSignatureReader.parse(wrapped(expiresInDays: -1)))
+
+        XCTAssertTrue(signature.isExpired)
+        XCTAssertLessThan(signature.daysRemaining, 0)
+    }
+
+    func testGarbageIsRejectedRatherThanGuessedAt() {
+        XCTAssertNil(InstalledSignatureReader.parse(Data("not a provisioning profile".utf8)))
+        XCTAssertNil(InstalledSignatureReader.parse(Data()))
+    }
+
+    func testAProfileWithoutAnExpiryIsRejected() throws {
+        let payload = try PropertyListSerialization.data(
+            fromPropertyList: ["Name": "No expiry"], format: .xml, options: 0
+        )
+
+        XCTAssertNil(InstalledSignatureReader.parse(payload))
+    }
+
+    func testAMissingProfileIsNotAnError() {
+        XCTAssertNil(InstalledSignatureReader.read(bundle: Bundle(for: InstalledSignatureTests.self)))
+    }
+}
+
+final class SignatureRenewalTests: XCTestCase {
+    private func coordinator(source: ReleaseSource) -> SelfUpdateCoordinator {
+        SelfUpdateCoordinator(
+            store: SignerConfigurationStore(
+                keychain: SignerKeychainConfiguration(
+                    service: "com.example.app.private-signer",
+                    configurationAccessGroup: "TEAM.com.example.app"
+                )
+            ),
+            releaseSource: source,
+            currentVersion: "v1.0.5-0006",
+            userAgent: "TestApp/1.0.0",
+            installedBundleIdentifier: "com.example.app"
+        )
+    }
+
+    func testASourceThatCannotFindItsOwnVersionDisablesRenewalRatherThanFailingOddly() async {
+        do {
+            _ = try await coordinator(source: StubReleaseSource()).requestRenewal()
+            XCTFail("renewal should report that there is nothing to re-sign from")
+        } catch let error as SelfUpdateError {
+            XCTAssertEqual(error.code, "current_version_source_unavailable")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    func testGitHubSourceFindsTheInstalledVersionForReSigning() async throws {
+        let json = """
+        [{"tag_name":"v1.0.5-0006","draft":false,"prerelease":false,"body":"current",
+          "assets":[{"name":"App-v1.0.5-0006-unsigned.ipa","browser_download_url":"https://example.com/6.ipa","digest":null}]}]
+        """
+        let source = GitHubReleaseSource(
+            repository: "owner/name",
+            assetNameTemplate: "App-{tag}-unsigned.ipa",
+            userAgent: "TestApp/1.0.0",
+            transport: RecordingTransport(response: json)
+        )
+
+        let candidate = try await source.release(matching: "v1.0.5-0006")
+
+        XCTAssertEqual(candidate?.version, "v1.0.5-0006")
+        XCTAssertEqual(candidate?.ipaURL, URL(string: "https://example.com/6.ipa"))
+    }
+
+    func testTheVersionMatchIgnoresALeadingV() async throws {
+        let json = """
+        [{"tag_name":"v1.0.5-0006","draft":false,"prerelease":false,"body":null,
+          "assets":[{"name":"App-v1.0.5-0006-unsigned.ipa","browser_download_url":"https://example.com/6.ipa","digest":null}]}]
+        """
+        let source = GitHubReleaseSource(
+            repository: "owner/name",
+            assetNameTemplate: "App-{tag}-unsigned.ipa",
+            userAgent: "TestApp/1.0.0",
+            transport: RecordingTransport(response: json)
+        )
+
+        XCTAssertNotNil(try await source.release(matching: "1.0.5-0006"))
+    }
+
+    /// The invariant 0.1.1 callers depend on: a non-nil candidate means a newer version exists.
+    /// Renewal must never make `checkForUpdate` return the version already installed.
+    func testRenewalIsNotReportedAsAnUpdate() async throws {
+        let json = """
+        [{"tag_name":"v1.0.5-0006","draft":false,"prerelease":false,"body":null,
+          "assets":[{"name":"App-v1.0.5-0006-unsigned.ipa","browser_download_url":"https://example.com/6.ipa","digest":null}]}]
+        """
+        let source = GitHubReleaseSource(
+            repository: "owner/name",
+            assetNameTemplate: "App-{tag}-unsigned.ipa",
+            userAgent: "TestApp/1.0.0",
+            transport: RecordingTransport(response: json)
+        )
+
+        let update = try await source.latestRelease(currentVersion: "v1.0.5-0006")
+        let renewal = try await source.release(matching: "v1.0.5-0006")
+
+        XCTAssertNil(update, "the installed version must not be offered as an update")
+        XCTAssertNotNil(renewal, "but it must still be findable for re-signing")
     }
 }

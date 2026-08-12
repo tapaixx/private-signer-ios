@@ -10,3 +10,5 @@
 "update.unexpected_bundle_identifier" = "签名结果的 Bundle ID 与请求不一致：期望 %1$@，实际 %2$@。";
 "update.invalid_manifest" = "签名服务没有返回有效的 HTTPS OTA manifest。";
 "update.network" = "签名更新请求失败：%@";
+"update.signature_not_readable" = "无法读取当前签名的有效期。";
+"update.current_version_source_unavailable" = "找不到当前版本 %@ 对应的发布，无法重新签名。";

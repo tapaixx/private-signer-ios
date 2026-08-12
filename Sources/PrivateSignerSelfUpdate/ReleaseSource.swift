@@ -28,4 +28,15 @@ public protocol ReleaseSource {
     ///
     /// Implementations own version comparison, because only they know their own version format.
     func latestRelease(currentVersion: String) async throws -> ReleaseCandidate?
+
+    /// The release matching an exact version, used to re-sign the build that is already
+    /// installed when its signature is about to expire — not to update it.
+    ///
+    /// Defaults to `nil`, which disables signature renewal for that source rather than failing
+    /// it: a source that cannot find its own current release has nothing to re-sign from.
+    func release(matching version: String) async throws -> ReleaseCandidate?
+}
+
+public extension ReleaseSource {
+    func release(matching version: String) async throws -> ReleaseCandidate? { nil }
 }

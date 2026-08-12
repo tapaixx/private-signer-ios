@@ -23,6 +23,8 @@ public enum SelfUpdateError: LocalizedError, Equatable {
     case unexpectedBundleIdentifier(expected: String, actual: String)
     case invalidManifest
     case network(String)
+    case signatureNotReadable
+    case sourceForCurrentVersionUnavailable(String)
 
     public var code: String {
         switch self {
@@ -32,6 +34,8 @@ public enum SelfUpdateError: LocalizedError, Equatable {
         case .unexpectedBundleIdentifier: return "unexpected_bundle_identifier"
         case .invalidManifest: return "invalid_manifest"
         case .network: return "network"
+        case .signatureNotReadable: return "signature_not_readable"
+        case .sourceForCurrentVersionUnavailable: return "current_version_source_unavailable"
         }
     }
 
@@ -49,6 +53,10 @@ public enum SelfUpdateError: LocalizedError, Equatable {
             return SelfUpdateStrings.string("update.invalid_manifest")
         case .network(let message):
             return SelfUpdateStrings.string("update.network", message)
+        case .signatureNotReadable:
+            return SelfUpdateStrings.string("update.signature_not_readable")
+        case .sourceForCurrentVersionUnavailable(let version):
+            return SelfUpdateStrings.string("update.current_version_source_unavailable", version)
         }
     }
 }
@@ -146,6 +154,36 @@ public struct SelfUpdateCoordinator {
 
         let job = (try? await client.job(id: created.jobID)) ?? created
         return try await finish(job: job, client: client, resolved: resolved)
+    }
+
+    // MARK: - Signature renewal
+
+    /// The running app's own signature, or `nil` when there is no provisioning profile to read.
+    public func installedSignature(bundle: Bundle = .main) -> InstalledSignature? {
+        InstalledSignatureReader.read(bundle: bundle)
+    }
+
+    /// Whether the installed signature runs out soon enough to act on.
+    ///
+    /// Deliberately separate from ``checkForUpdate()``. A signature expiring is not a new version,
+    /// and folding it into update discovery would make that method return a candidate whose
+    /// version equals the installed one — breaking every caller that reads a non-nil result as
+    /// "there is something newer".
+    public func needsRenewal(within days: Double = 3, bundle: Bundle = .main) -> Bool {
+        guard let signature = installedSignature(bundle: bundle) else { return false }
+        return signature.expires(within: days)
+    }
+
+    /// Re-signs the version that is already installed, because its signature is about to expire.
+    ///
+    /// This installs the same build again rather than a newer one. It is the only thing that
+    /// keeps an app signed with a seven-day free-account profile usable without a Mac — and even
+    /// then only while that profile itself is still valid.
+    public func requestRenewal(target: SelfUpdateTarget = .installedApp) async throws -> SelfUpdateResult {
+        guard let candidate = try await releaseSource.release(matching: currentVersion) else {
+            throw SelfUpdateError.sourceForCurrentVersionUnavailable(currentVersion)
+        }
+        return try await requestSignedBuild(of: candidate, target: target)
     }
 
     /// Polls one job and re-checks the identity guarantee.

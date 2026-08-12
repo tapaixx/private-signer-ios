@@ -10,3 +10,5 @@
 "update.unexpected_bundle_identifier" = "The signed build's Bundle ID does not match the request: expected %1$@, got %2$@.";
 "update.invalid_manifest" = "The signing service did not return a valid HTTPS OTA manifest.";
 "update.network" = "The signed update request failed: %@";
+"update.signature_not_readable" = "The installed signature's expiry could not be read.";
+"update.current_version_source_unavailable" = "No release matching the installed version %@ was found, so it cannot be re-signed.";
