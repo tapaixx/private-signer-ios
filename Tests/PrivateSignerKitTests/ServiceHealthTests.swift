@@ -65,6 +65,14 @@ final class ServiceHealthTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 1)
     }
 
+    func testAnHTTPErrorFromHealthIsAWrongAddressNotAnOutage() async {
+        let transport = RecordingTransport(responses: ["<html>404</html>"], statusCodes: [404])
+
+        let verification = await makeClient(transport).verifyConfiguration()
+
+        XCTAssertEqual(verification, .notASigner)
+    }
+
     func testAFullyWorkingSignerIsUsable() async {
         let transport = RecordingTransport(
             responses: [#"{"ok":true,"contract":"v2"}"#, #"{"jobs":[],"next_cursor":null}"#]

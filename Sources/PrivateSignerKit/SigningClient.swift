@@ -193,6 +193,17 @@ public struct SigningClient {
         let health: ServiceHealth
         do {
             health = try await self.health()
+        } catch SigningClientError.invalidResponse {
+            // Something answered, but the body is not a health payload. That is a wrong address,
+            // not an unreachable one, and saying so is the entire point of this method.
+            return .notASigner
+        } catch SigningClientError.server {
+            // An HTTP error from an unauthenticated /health means this origin serves something
+            // else entirely.
+            return .notASigner
+        } catch SigningClientError.unauthorized {
+            // /health never authenticates, so a 401 here is another service's endpoint.
+            return .notASigner
         } catch {
             return .unreachable(error.localizedDescription)
         }
