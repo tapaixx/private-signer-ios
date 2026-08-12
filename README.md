@@ -2,45 +2,36 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-A Swift package that lets an iOS/iPadOS app request private IPA signing from a
-[Private IPA Signer](https://github.com/nnnmdzz/private-signer) deployment, and install the signed
-result over the air — including updating itself.
+A Swift package for iOS/iPadOS clients of [Private IPA Signer](https://github.com/nnnmdzz/private-signer).
+The v3 contract makes the Worker authoritative for projects, source versions, and signing profiles.
 
-## What this is for
+## Contract
 
-The signing service is application-agnostic: it takes a resignable IPA and gives back a
-device-gated signed one. This package is the client half of that contract, so a project does not
-have to reimplement the upload protocol, the job state machine, the Keychain rules that let a
-configuration survive re-signing, or the identity checks that keep a "self-update" from quietly
-installing a second copy of the app.
+A project-aware app compiles only a stable `projectID`. It does **not** discover GitHub Releases,
+carry an IPA URL, or hard-code a provisioning profile ID. The Worker returns the latest
+`ProjectVersion` and the profiles the authenticated principal may use, and the SDK asks the Worker
+to sign that immutable version.
 
-**Nothing in this package is a secret.** The Worker URL and Signing Request Token are entered by
-the person operating the app and stored in the device Keychain. That is why this repository can be
-public while the signing service stays private.
+Generic URL/file signing remains available as a separate capability for principals that explicitly
+have `generic-url-sign` or `upload-sign` scope.
 
 ## Products
 
-| Product | Depends on | What it gives you |
-| --- | --- | --- |
-| `PrivateSignerKit` | — | The contract: configuration storage, the `/v2` client, delivery links, OTA install URLs, the error model. |
-| `PrivateSignerSelfUpdate` | Kit | `ReleaseSource`, `GitHubReleaseSource`, version ordering, and `SelfUpdateCoordinator`. |
-| `PrivateSignerUI` | Kit + SelfUpdate | Ready-made SwiftUI screens (zh-Hans + en). A convenience — build your own on Kit if you need different wording. |
+| Product | What it gives you |
+| --- | --- |
+| `PrivateSignerKit` | v3 configuration, project/version/profile discovery, project and generic signing jobs, delivery links, OTA URLs. |
+| `PrivateSignerSelfUpdate` | Worker-driven `SelfUpdateCoordinator`, renewal of the installed ProjectVersion, signature inspection. |
+| `PrivateSignerUI` | SwiftUI configuration, project self-update, profile Picker, and optional generic signing screens. |
 
 ## Install
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.2.0")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.3.0")
 ```
 
-Pin an exact version. A self-update path that breaks cannot be fixed by self-updating.
+Pin an exact version. `0.3.0` is a breaking bug-fix release and requires a v3 Worker.
 
-## Integrate
-
-Read **[docs/client-integration-guide.md](docs/client-integration-guide.md)** — it is written for an
-AI agent to follow step by step, and ends with acceptance assertions you can actually run.
-[中文版](docs/client-integration-guide.zh-CN.md).
-
-## Minimal self-update
+## Minimal project self-update
 
 ```swift
 import PrivateSignerKit
@@ -55,17 +46,15 @@ let store = SignerConfigurationStore(
 
 let coordinator = SelfUpdateCoordinator(
     store: store,
-    releaseSource: GitHubReleaseSource(
-        repository: "owner/name",
-        assetNameTemplate: "MyApp-{tag}-unsigned.ipa",
-        userAgent: "MyApp/\(currentVersion)"
-    ),
+    projectID: "my-app",
     currentVersion: currentVersion,
     userAgent: "MyApp/\(currentVersion)"
 )
 
 if let candidate = try await coordinator.checkForUpdate() {
-    var result = try await coordinator.requestSignedBuild(of: candidate)   // .installedApp
+    let profiles = try await coordinator.availableProfiles()
+    let profileID = profiles.first(where: \.isDefault)?.id ?? profiles.first?.id
+    var result = try await coordinator.requestSignedBuild(of: candidate, profileID: profileID)
     while result.job.isActive {
         try await Task.sleep(nanoseconds: 5_000_000_000)
         result = try await coordinator.refresh(jobID: result.job.jobID)
@@ -76,17 +65,18 @@ if let candidate = try await coordinator.checkForUpdate() {
 }
 ```
 
-## API reference
+The unsigned IPA URL never enters this flow.
 
-Every public type, with the reasons behind the sharp edges: [docs/api-reference.md](docs/api-reference.md).
+## Documentation
 
-## Domain model
+- [Client integration guide](docs/client-integration-guide.md) · [中文](docs/client-integration-guide.zh-CN.md)
+- [API reference](docs/api-reference.md) · [中文](docs/api-reference.zh-CN.md)
+- [v3 contract notes](docs/v3-contract.md) · [中文](docs/v3-contract.zh-CN.md)
 
-Terms used throughout this package are defined in [CONTEXT.md](CONTEXT.md). They match the signing
-service's own glossary word for word.
+## Removed v2 assumptions
 
-## Verification status
+`/v2`, `GitHubReleaseSource`, `ReleaseSource`, `SignerUIContext.defaultProfileID`, and the magic
+`personal-main` profile identifier are not part of this release.
 
-CI compiles the package and runs its unit tests on every push. **CI cannot prove that a signed IPA
-installs on a real device.** Real-device install, upgrade, and side-by-side clone testing is the
-final acceptance gate and has to be done by a human with a phone.
+CI compiles the package and runs its unit tests. Real-device install/upgrade remains the final
+acceptance gate.
