@@ -90,6 +90,7 @@ final class ServiceHealthTests: XCTestCase {
             statusCodes: [200, 403]
         )
 
-        XCTAssertEqual(await makeClient(transport).verifyConfiguration(), .usable)
+        let verification = await makeClient(transport).verifyConfiguration()
+        XCTAssertEqual(verification, .usable)
     }
 }
