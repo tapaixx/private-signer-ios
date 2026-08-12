@@ -201,11 +201,7 @@ public struct SigningClient {
             return .unsupportedContract(contract)
         }
         do {
-            _ = try await send(
-                path: "v2/sign/jobs",
-                method: "GET",
-                queryItems: []
-            ) as JobHistoryResponse
+            let _: JobHistoryResponse = try await send(path: "v2/sign/jobs", method: "GET")
         } catch SigningClientError.unauthorized {
             return .invalidToken
         } catch {
