@@ -1,5 +1,7 @@
 # Private IPA Signer — 客户端接入指南
 
+[English](client-integration-guide.md) · **简体中文**
+
 本指南用于给一个 iOS/iPadOS 项目加上私有 IPA 签名、OTA 交付，以及可选的自更新能力。它按可被 AI
 编码 agent 逐步执行的方式编写，末尾给出可实际运行的验收断言。
 

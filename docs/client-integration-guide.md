@@ -1,5 +1,7 @@
 # Private IPA Signer — Client Integration Guide
 
+**English** · [简体中文](client-integration-guide.zh-CN.md)
+
 This guide adds private IPA signing, OTA delivery, and optional self-updating to an iOS/iPadOS
 project. It is written to be followed step by step by an AI coding agent, and it ends with
 assertions you can run.

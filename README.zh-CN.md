@@ -1,9 +1,9 @@
 # Private Signer for iOS
 
+[English](README.md) · **简体中文**
+
 一个 Swift 包，让 iOS/iPadOS App 能向 [Private IPA Signer](https://github.com/nnnmdzz/private-signer)
 部署请求私有 IPA 签名，并通过 OTA 安装签名结果 —— 包括更新它自己。
-
-English: [README.md](README.md)
 
 ## 这个包解决什么
 
@@ -81,9 +81,13 @@ profile 变化，所以依赖默认组的 App 每自更新一次就丢一次配�
 **原地升级 vs 并排副本。** `SelfUpdateTarget` 有两个 case 而不是一个可选 Bundle ID，因为传错的后果
 是桌面上多一个图标、旧版本还在跑，而用户会以为更新成功了。详见指南 §6。
 
+## API 参考
+
+完整公开接口，附带每个尖角背后的理由：[docs/api-reference.zh-CN.md](docs/api-reference.zh-CN.md)。
+
 ## 领域模型
 
-本包用到的术语定义在 [CONTEXT.md](CONTEXT.md)，与签名服务自己的术语表逐字一致。
+本包用到的术语定义在 [CONTEXT.zh-CN.md](CONTEXT.zh-CN.md)，与签名服务自己的术语表逐字一致。
 
 ## 验证状态
 

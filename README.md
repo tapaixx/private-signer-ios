@@ -1,10 +1,10 @@
 # Private Signer for iOS
 
+**English** · [简体中文](README.zh-CN.md)
+
 A Swift package that lets an iOS/iPadOS app request private IPA signing from a
 [Private IPA Signer](https://github.com/nnnmdzz/private-signer) deployment, and install the signed
 result over the air — including updating itself.
-
-中文文档：[README.zh-CN.md](README.zh-CN.md)
 
 ## What this is for
 
@@ -75,6 +75,10 @@ if let candidate = try await coordinator.checkForUpdate() {
     }
 }
 ```
+
+## API reference
+
+Every public type, with the reasons behind the sharp edges: [docs/api-reference.md](docs/api-reference.md).
 
 ## Domain model
 

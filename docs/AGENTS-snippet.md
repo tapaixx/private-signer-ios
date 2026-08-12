@@ -1,5 +1,7 @@
 # AGENTS.md snippet
 
+**English** · [简体中文](AGENTS-snippet.zh-CN.md)
+
 Paste this into the consuming project's `AGENTS.md` / `CLAUDE.md` after integrating. It is what a
 future agent needs to know to avoid breaking the integration.
 
