@@ -1,42 +1,6 @@
-import Foundation
+import PrivateSignerKit
 
-/// One resignable build that a client could upgrade to, or install alongside itself.
-public struct ReleaseCandidate: Equatable {
-    /// The version string as the source publishes it, e.g. `v1.0.5-0006`.
-    public let version: String
-    /// HTTPS location of the unsigned/resignable IPA.
-    public let ipaURL: URL
-    /// Bare lowercase 64-character hex, or `nil` when the source cannot vouch for the bytes.
-    public let expectedSHA256: String?
-    public let notes: String?
-
-    public init(version: String, ipaURL: URL, expectedSHA256: String? = nil, notes: String? = nil) {
-        self.version = version
-        self.ipaURL = ipaURL
-        self.expectedSHA256 = expectedSHA256
-        self.notes = notes
-    }
-}
-
-/// Where a client discovers its own newer builds.
+/// A self-update candidate is now the immutable ProjectVersion returned by the Worker.
 ///
-/// This is the whole application-specific surface of self-updating: implement one method and the
-/// rest of the flow — signing, polling, delivery, OTA install — is identical for every app.
-public protocol ReleaseSource {
-    /// Returns the newest candidate that is strictly newer than `currentVersion`, or `nil` when
-    /// the client is already current.
-    ///
-    /// Implementations own version comparison, because only they know their own version format.
-    func latestRelease(currentVersion: String) async throws -> ReleaseCandidate?
-
-    /// The release matching an exact version, used to re-sign the build that is already
-    /// installed when its signature is about to expire — not to update it.
-    ///
-    /// Defaults to `nil`, which disables signature renewal for that source rather than failing
-    /// it: a source that cannot find its own current release has nothing to re-sign from.
-    func release(matching version: String) async throws -> ReleaseCandidate?
-}
-
-public extension ReleaseSource {
-    func release(matching version: String) async throws -> ReleaseCandidate? { nil }
-}
+/// The client no longer discovers GitHub releases or receives the unsigned IPA URL.
+public typealias SelfUpdateCandidate = ProjectVersion

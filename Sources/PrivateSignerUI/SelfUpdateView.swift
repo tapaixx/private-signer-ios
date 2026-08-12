@@ -4,16 +4,13 @@ import UIKit
 import PrivateSignerKit
 import PrivateSignerSelfUpdate
 
-/// The self-update screen: check for a newer build, have it signed, install it.
-///
-/// Installing a side-by-side clone lives behind the advanced disclosure and renames the primary
-/// button, because it does something visibly different — it leaves the running app in place and
-/// adds a second icon.
+/// The self-update screen: ask the Worker for this project's update, sign that ProjectVersion, and
+/// install it. The client never discovers or downloads an unsigned IPA.
 public struct SelfUpdateView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private let context: SignerUIContext
-    private let releaseSource: ReleaseSource
+    private let projectID: String
     private let currentVersion: String
     private let installedBundleIdentifier: String
     private let signingMode: SigningMode
@@ -21,7 +18,9 @@ public struct SelfUpdateView: View {
     @State private var environment: SignerEnvironment
     @State private var configuration: SignerConfiguration?
     @State private var showingConfiguration = false
-    @State private var candidate: ReleaseCandidate?
+    @State private var candidate: SelfUpdateCandidate?
+    @State private var profiles: [ProfileCapability] = []
+    @State private var selectedProfileID = ""
     @State private var checkedOnce = false
     @State private var isChecking = false
     @State private var isRequesting = false
@@ -34,14 +33,14 @@ public struct SelfUpdateView: View {
 
     public init(
         context: SignerUIContext,
-        releaseSource: ReleaseSource,
+        projectID: String,
         currentVersion: String,
         installedBundleIdentifier: String = Bundle.main.bundleIdentifier ?? "",
         environment: SignerEnvironment = .default,
         signingMode: SigningMode = .split
     ) {
         self.context = context
-        self.releaseSource = releaseSource
+        self.projectID = projectID
         self.currentVersion = currentVersion
         self.installedBundleIdentifier = installedBundleIdentifier
         self.signingMode = signingMode
@@ -64,6 +63,7 @@ public struct SelfUpdateView: View {
                 SignerConfigurationEditorView(context: context, environment: environment) { saved, savedEnvironment in
                     configuration = saved
                     environment = savedEnvironment
+                    Task { await check() }
                 }
             }
         }
@@ -136,7 +136,7 @@ public struct SelfUpdateView: View {
                     Label(primaryActionTitle, systemImage: installAsClone ? "plus.square.on.square" : "arrow.down.app")
                 }
             }
-            .disabled(configuration == nil || candidate == nil || isRequesting)
+            .disabled(configuration == nil || candidate == nil || selectedProfileID.isEmpty || isRequesting)
 
             if installAsClone {
                 Text(UIStrings.string("update.clone_warning"))
@@ -146,10 +146,6 @@ public struct SelfUpdateView: View {
 
             if let errorMessage {
                 Text(errorMessage).font(.footnote).foregroundStyle(.red)
-            }
-        } footer: {
-            if let notes = candidate?.notes, !notes.isEmpty {
-                Text(notes).font(.caption)
             }
         }
     }
@@ -161,6 +157,13 @@ public struct SelfUpdateView: View {
                 showingAdvanced.toggle()
             }
             if showingAdvanced {
+                if !profiles.isEmpty {
+                    Picker(UIStrings.string("jobs.profile_id"), selection: $selectedProfileID) {
+                        ForEach(profiles) { profile in
+                            Text(profile.displayName).tag(profile.id)
+                        }
+                    }
+                }
                 Toggle(UIStrings.string("update.install_as_clone"), isOn: $installAsClone)
                 if installAsClone {
                     TextField(UIStrings.string("update.clone_bundle_id"), text: $cloneBundleID)
@@ -216,11 +219,10 @@ public struct SelfUpdateView: View {
     private func coordinator() -> SelfUpdateCoordinator {
         SelfUpdateCoordinator(
             store: context.store(for: environment),
-            releaseSource: releaseSource,
+            projectID: projectID,
             currentVersion: currentVersion,
             userAgent: context.userAgent,
             installedBundleIdentifier: installedBundleIdentifier,
-            profileID: context.defaultProfileID,
             signingMode: signingMode
         )
     }
@@ -234,8 +236,16 @@ public struct SelfUpdateView: View {
             checkedOnce = true
         }
         do {
-            candidate = try await coordinator().checkForUpdate()
+            let update = try await coordinator().updateStatus()
+            candidate = update.updateAvailable ? update.targetVersion : nil
+            profiles = update.profiles.filter(\.signable)
+            if !profiles.contains(where: { $0.id == selectedProfileID }) {
+                selectedProfileID = profiles.first(where: \.isDefault)?.id ?? profiles.first?.id ?? ""
+            }
         } catch {
+            candidate = nil
+            profiles = []
+            selectedProfileID = ""
             errorMessage = error.localizedDescription
         }
     }
@@ -248,7 +258,11 @@ public struct SelfUpdateView: View {
         statusMessage = nil
         defer { isRequesting = false }
         do {
-            result = try await coordinator().requestSignedBuild(of: candidate, target: target)
+            result = try await coordinator().requestSignedBuild(
+                of: candidate,
+                target: target,
+                profileID: selectedProfileID
+            )
         } catch {
             errorMessage = error.localizedDescription
         }

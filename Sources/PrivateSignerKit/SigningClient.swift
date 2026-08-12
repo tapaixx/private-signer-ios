@@ -18,7 +18,6 @@ public enum SigningClientError: LocalizedError {
     case sourceTooLarge
     case server(Int, String)
 
-    /// Stable, non-localized identifier. Branch on this, never on `errorDescription`.
     public var code: String {
         switch self {
         case .invalidURL: return "invalid_url"
@@ -45,8 +44,8 @@ public enum SigningClientError: LocalizedError {
     }
 }
 
-/// The `/v2` client: create Signing Jobs from a URL or a local upload, poll them, control their
-/// lifecycle, and mint Delivery Links.
+/// The v3 client. Project signing uses Worker-managed immutable ProjectVersions. Generic URL and
+/// upload signing remain separate capabilities that a principal may or may not have.
 public struct SigningClient {
     public static let maximumSourceBytes = 100 * 1024 * 1024
     public static let maximumPartBytes = 8 * 1024 * 1024
@@ -57,7 +56,6 @@ public struct SigningClient {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    /// - Parameter userAgent: identifies the calling app in Worker logs, e.g. `"MyApp/1.2.3"`.
     public init(
         configuration: SignerConfiguration,
         userAgent: String,
@@ -76,10 +74,63 @@ public struct SigningClient {
         }
     }
 
+    // MARK: - Project catalog
+
+    public func projects() async throws -> [SigningProject] {
+        let response: ProjectListResponse = try await send(path: "v3/projects", method: "GET")
+        return response.projects
+    }
+
+    public func project(id: String) async throws -> ProjectDetail {
+        try await send(path: "v3/projects/\(encodedPathComponent(id))", method: "GET")
+    }
+
+    public func projectVersions(projectID: String) async throws -> [ProjectVersion] {
+        let response: ProjectVersionsResponse = try await send(
+            path: "v3/projects/\(encodedPathComponent(projectID))/versions",
+            method: "GET"
+        )
+        return response.versions
+    }
+
+    /// Asks the Worker, not the app, whether a newer version should be installed.
+    public func projectUpdate(projectID: String, currentVersion: String) async throws -> ProjectUpdate {
+        try await send(
+            path: "v3/projects/\(encodedPathComponent(projectID))/update",
+            method: "GET",
+            queryItems: [URLQueryItem(name: "current_version", value: currentVersion)]
+        )
+    }
+
+    /// Profiles visible to the current principal. Supplying a project filters the list by that
+    /// project's policy and marks its server-side default.
+    public func profiles(projectID: String? = nil) async throws -> [ProfileCapability] {
+        let response: ProfileListResponse = try await send(
+            path: "v3/profiles",
+            method: "GET",
+            queryItems: projectID.map { [URLQueryItem(name: "project_id", value: $0)] } ?? []
+        )
+        return response.profiles
+    }
+
+    // MARK: - Create Signing Jobs
+
+    public func createProjectJob(
+        projectID: String,
+        versionID: String,
+        options: ProjectSigningOptions = ProjectSigningOptions()
+    ) async throws -> SigningJob {
+        var payload = try encodedOptions(options)
+        payload["project_id"] = projectID
+        payload["version_id"] = versionID
+        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
+    }
+
+    /// Generic URL signing. Project self-update code should never call this method.
     public func createURLJob(sourceURL: URL, options: SigningOptions) async throws -> SigningJob {
         var payload = try encodedOptions(options)
         payload["source_url"] = sourceURL.absoluteString
-        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
     }
 
     public func uploadAndCreateJob(
@@ -89,7 +140,7 @@ public struct SigningClient {
     ) async throws -> SigningJob {
         guard data.count <= Self.maximumSourceBytes else { throw SigningClientError.sourceTooLarge }
         let session: UploadSessionResponse = try await send(
-            path: "v2/uploads",
+            path: "v3/uploads",
             method: "POST",
             json: ["filename": filename, "size": data.count]
         )
@@ -109,7 +160,7 @@ public struct SigningClient {
         try await completeUpload(uploadID: session.uploadID)
         var payload = try encodedOptions(options)
         payload["upload_id"] = session.uploadID
-        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
     }
 
     public func uploadAndCreateJob(fileURL: URL, options: SigningOptions) async throws -> SigningJob {
@@ -118,7 +169,7 @@ public struct SigningClient {
             throw SigningClientError.sourceTooLarge
         }
         let session: UploadSessionResponse = try await send(
-            path: "v2/uploads",
+            path: "v3/uploads",
             method: "POST",
             json: ["filename": values.name ?? fileURL.lastPathComponent, "size": size]
         )
@@ -135,14 +186,15 @@ public struct SigningClient {
         try await completeUpload(uploadID: session.uploadID)
         var payload = try encodedOptions(options)
         payload["upload_id"] = session.uploadID
-        return try await send(path: "v2/sign/jobs", method: "POST", json: payload)
+        return try await send(path: "v3/sign/jobs", method: "POST", json: payload)
     }
+
+    // MARK: - Job lifecycle
 
     public func job(id: String) async throws -> SigningJob {
-        try await send(path: "v2/sign/jobs/\(id)", method: "GET")
+        try await send(path: "v3/sign/jobs/\(encodedPathComponent(id))", method: "GET")
     }
 
-    /// Walks every history page. Newest first.
     public func history() async throws -> [SigningJob] {
         var jobs: [SigningJob] = []
         var cursor: String?
@@ -150,7 +202,7 @@ public struct SigningClient {
         repeat {
             let queryItems = cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
             let response: JobHistoryResponse = try await send(
-                path: "v2/sign/jobs",
+                path: "v3/sign/jobs",
                 method: "GET",
                 queryItems: queryItems
             )
@@ -159,50 +211,40 @@ public struct SigningClient {
             if let cursor, !seenCursors.insert(cursor).inserted {
                 throw SigningClientError.invalidResponse
             }
-            if seenCursors.count > 300 {
-                throw SigningClientError.invalidResponse
-            }
+            if seenCursors.count > 300 { throw SigningClientError.invalidResponse }
         } while cursor != nil
         return jobs
     }
 
     public func retry(jobID: String) async throws -> SigningJob {
-        try await send(path: "v2/sign/jobs/\(jobID)/retry", method: "POST", json: [:])
+        try await send(path: "v3/sign/jobs/\(encodedPathComponent(jobID))/retry", method: "POST", json: [:])
     }
 
     public func cancel(jobID: String) async throws -> SigningJob {
-        try await send(path: "v2/sign/jobs/\(jobID)/cancel", method: "POST", json: [:])
+        try await send(path: "v3/sign/jobs/\(encodedPathComponent(jobID))/cancel", method: "POST", json: [:])
     }
 
     public func links(jobID: String) async throws -> DeliveryLinks {
-        try await send(path: "v2/sign/jobs/\(jobID)/links", method: "POST", json: [:])
+        try await send(path: "v3/sign/jobs/\(encodedPathComponent(jobID))/links", method: "POST", json: [:])
     }
 
     // MARK: - Service identity
 
-    /// Unauthenticated probe of `GET /health`.
     public func health() async throws -> ServiceHealth {
         var request = try unauthenticatedRequest(path: "health", method: "GET")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return try await perform(request)
     }
 
-    /// Distinguishes "this URL is not a Private IPA Signer" from "the token is wrong", which are
-    /// the two failures a hand-entered configuration actually produces.
     public func verifyConfiguration() async -> ConfigurationVerification {
         let health: ServiceHealth
         do {
             health = try await self.health()
         } catch SigningClientError.invalidResponse {
-            // Something answered, but the body is not a health payload. That is a wrong address,
-            // not an unreachable one, and saying so is the entire point of this method.
             return .notASigner
         } catch SigningClientError.server {
-            // An HTTP error from an unauthenticated /health means this origin serves something
-            // else entirely.
             return .notASigner
         } catch SigningClientError.unauthorized {
-            // /health never authenticates, so a 401 here is another service's endpoint.
             return .notASigner
         } catch {
             return .unreachable(error.localizedDescription)
@@ -212,9 +254,12 @@ public struct SigningClient {
             return .unsupportedContract(contract)
         }
         do {
-            let _: JobHistoryResponse = try await send(path: "v2/sign/jobs", method: "GET")
+            let _: ProjectListResponse = try await send(path: "v3/projects", method: "GET")
         } catch SigningClientError.unauthorized {
             return .invalidToken
+        } catch SigningClientError.server(let status, _) where status == 403 {
+            // The token authenticated but intentionally has no catalog scope. It is still a valid
+            // signer credential; capability enforcement happens on the operation itself.
         } catch {
             return .unreachable(error.localizedDescription)
         }
@@ -224,14 +269,15 @@ public struct SigningClient {
     // MARK: - Plumbing
 
     private func validatedPartSize(_ value: Int) throws -> Int {
-        guard value > 0, value <= Self.maximumPartBytes else {
-            throw SigningClientError.invalidResponse
-        }
+        guard value > 0, value <= Self.maximumPartBytes else { throw SigningClientError.invalidResponse }
         return value
     }
 
     private func uploadPart(uploadID: String, partNumber: Int, data: Data) async throws {
-        var request = try authorizedRequest(path: "v2/uploads/\(uploadID)/parts/\(partNumber)", method: "PUT")
+        var request = try authorizedRequest(
+            path: "v3/uploads/\(encodedPathComponent(uploadID))/parts/\(partNumber)",
+            method: "PUT"
+        )
         request.httpBody = data
         request.setValue(String(data.count), forHTTPHeaderField: "Content-Length")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
@@ -240,18 +286,22 @@ public struct SigningClient {
 
     private func completeUpload(uploadID: String) async throws {
         let _: UploadCompleteResponse = try await send(
-            path: "v2/uploads/\(uploadID)/complete",
+            path: "v3/uploads/\(encodedPathComponent(uploadID))/complete",
             method: "POST",
             json: [:]
         )
     }
 
-    private func encodedOptions(_ options: SigningOptions) throws -> [String: Any] {
+    private func encodedOptions<T: Encodable>(_ options: T) throws -> [String: Any] {
         let data = try encoder.encode(options)
         guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SigningClientError.invalidResponse
         }
         return value
+    }
+
+    private func encodedPathComponent(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
     }
 
     private func send<T: Decodable>(
@@ -303,7 +353,7 @@ public struct SigningClient {
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
         let (data, response) = try await transport.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw SigningClientError.invalidResponse }
-        if http.statusCode == 401 || http.statusCode == 403 { throw SigningClientError.unauthorized }
+        if http.statusCode == 401 { throw SigningClientError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {
             let payload = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
             let message = payload?["message"] as? String
@@ -319,7 +369,29 @@ public struct SigningClient {
     }
 }
 
-struct UploadSessionResponse: Decodable {
+public struct ProjectDetail: Decodable, Equatable {
+    public let project: SigningProject
+    public let latestVersion: ProjectVersion?
+
+    private enum CodingKeys: String, CodingKey {
+        case project
+        case latestVersion = "latest_version"
+    }
+}
+
+private struct ProjectListResponse: Decodable {
+    let projects: [SigningProject]
+}
+
+private struct ProjectVersionsResponse: Decodable {
+    let versions: [ProjectVersion]
+}
+
+private struct ProfileListResponse: Decodable {
+    let profiles: [ProfileCapability]
+}
+
+private struct UploadSessionResponse: Decodable {
     let uploadID: String
     let partSize: Int
 
@@ -329,7 +401,7 @@ struct UploadSessionResponse: Decodable {
     }
 }
 
-struct UploadPartResponse: Decodable {
+private struct UploadPartResponse: Decodable {
     let uploadID: String
     let partNumber: Int
 
@@ -339,7 +411,7 @@ struct UploadPartResponse: Decodable {
     }
 }
 
-struct UploadCompleteResponse: Decodable {
+private struct UploadCompleteResponse: Decodable {
     let uploadID: String
     let status: String
 
@@ -349,7 +421,7 @@ struct UploadCompleteResponse: Decodable {
     }
 }
 
-struct JobHistoryResponse: Decodable {
+private struct JobHistoryResponse: Decodable {
     let jobs: [SigningJob]
     let nextCursor: String?
 

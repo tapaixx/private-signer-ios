@@ -4,8 +4,8 @@ import UIKit
 import UniformTypeIdentifiers
 import PrivateSignerKit
 
-/// The general-purpose signing screen: pick a source IPA, choose options, submit, and follow the
-/// resulting Signing Jobs.
+/// General-purpose URL/upload signing. Profile IDs are discovered from the Worker rather than
+/// typed or injected by the host app.
 public struct SigningJobsView: View {
     @Environment(\.scenePhase) private var scenePhase
 
@@ -21,6 +21,7 @@ public struct SigningJobsView: View {
     @State private var showingAdvanced = false
     @State private var signingMode = SigningMode.split
     @State private var targetBundleID = ""
+    @State private var profiles: [ProfileCapability] = []
     @State private var profileID = ""
     @State private var keychainGroups = ""
     @State private var requireAllBundles = false
@@ -34,7 +35,6 @@ public struct SigningJobsView: View {
     public init(context: SignerUIContext, environment: SignerEnvironment = .default) {
         self.context = context
         _environment = State(initialValue: environment)
-        _profileID = State(initialValue: context.defaultProfileID ?? "")
     }
 
     public var body: some View {
@@ -52,7 +52,10 @@ public struct SigningJobsView: View {
                 SignerConfigurationEditorView(context: context, environment: environment) { saved, savedEnvironment in
                     configuration = saved
                     environment = savedEnvironment
-                    Task { await refreshHistory() }
+                    Task {
+                        await refreshProfiles()
+                        await refreshHistory()
+                    }
                 }
             }
         }
@@ -71,6 +74,7 @@ public struct SigningJobsView: View {
         }
         .task {
             loadConfiguration()
+            await refreshProfiles()
             await refreshHistory()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -145,14 +149,20 @@ public struct SigningJobsView: View {
                 Text(UIStrings.string("jobs.mode_split")).tag(SigningMode.split)
                 Text(UIStrings.string("jobs.mode_standard")).tag(SigningMode.standard)
             }
+
+            if !profiles.isEmpty {
+                Picker(UIStrings.string("jobs.profile_id"), selection: $profileID) {
+                    ForEach(profiles) { profile in
+                        Text(profile.displayName).tag(profile.id)
+                    }
+                }
+            }
+
             Button(showingAdvanced ? UIStrings.string("jobs.hide_advanced") : UIStrings.string("jobs.show_advanced")) {
                 showingAdvanced.toggle()
             }
             if showingAdvanced {
                 TextField(UIStrings.string("jobs.target_bundle_id"), text: $targetBundleID)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField(UIStrings.string("jobs.profile_id"), text: $profileID)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 VStack(alignment: .leading, spacing: 6) {
@@ -183,7 +193,7 @@ public struct SigningJobsView: View {
                     Label(UIStrings.string("jobs.submit"), systemImage: "signature")
                 }
             }
-            .disabled(configuration == nil || isSubmitting || !sourceReady)
+            .disabled(configuration == nil || profileID.isEmpty || isSubmitting || !sourceReady)
 
             if let errorMessage {
                 Text(errorMessage).font(.footnote).foregroundStyle(.red)
@@ -296,6 +306,26 @@ public struct SigningJobsView: View {
             jobs.insert(job, at: 0)
             await refreshHistory()
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func refreshProfiles() async {
+        guard let configuration else {
+            profiles = []
+            profileID = ""
+            return
+        }
+        do {
+            let discovered = try await client(configuration).profiles().filter(\.signable)
+            profiles = discovered
+            if !discovered.contains(where: { $0.id == profileID }) {
+                profileID = discovered.first(where: \.isDefault)?.id ?? discovered.first?.id ?? ""
+            }
+        } catch {
+            profiles = []
+            profileID = ""
             errorMessage = error.localizedDescription
         }
     }

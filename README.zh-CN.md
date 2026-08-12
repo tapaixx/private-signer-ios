@@ -2,41 +2,35 @@
 
 [English](README.md) · **简体中文**
 
-一个 Swift 包，让 iOS/iPadOS App 能向 [Private IPA Signer](https://github.com/nnnmdzz/private-signer)
-部署请求私有 IPA 签名，并通过 OTA 安装签名结果 —— 包括更新它自己。
+一个供 iOS/iPadOS 使用的 [Private IPA Signer](https://github.com/nnnmdzz/private-signer) Swift 客户端。
+v3 契约把项目、源版本和签名 Profile 的权威状态全部放到 Worker。
 
-## 这个包解决什么
+## v3 契约
 
-签名服务本身是应用无关的：给它一个可重签的 IPA，它还你一个绑定设备的已签名 IPA。本包是这个契约的
-客户端一半，这样接入方就不必重新实现分片上传协议、任务状态机、让配置在重新签名后仍能存活的 Keychain
-规则，以及那些防止"自更新"悄悄装出第二个 App 的身份校验。
+项目型 App 只编译一个稳定的 `projectID`。App **不再**自行查 GitHub Release、不携带 unsigned IPA URL、
+也不硬编码 provisioning profile ID。Worker 返回当前 `ProjectVersion` 和该 Principal 可使用的 Profile，SDK
+只请求签这个不可变版本。
 
-**本包中没有任何机密。** Worker 地址和 Signing Request Token 由使用者输入、存在设备 Keychain 里。
-这正是本仓库可以公开、而签名服务保持私有的原因。
+任意 URL/本地 IPA 签名仍保留，但属于另一种能力；Principal 必须明确拥有 `generic-url-sign` 或
+`upload-sign` scope。
 
 ## 三个产物
 
-| 产物 | 依赖 | 提供什么 |
-| --- | --- | --- |
-| `PrivateSignerKit` | — | 契约本身：配置存储、`/v2` 客户端、交付链接、OTA 安装 URL、错误模型。 |
-| `PrivateSignerSelfUpdate` | Kit | `ReleaseSource`、`GitHubReleaseSource`、版本比较、`SelfUpdateCoordinator`。 |
-| `PrivateSignerUI` | Kit + SelfUpdate | 现成的 SwiftUI 界面（中文 + 英文）。**便利品**——需要不同文案就基于 Kit 自己写。 |
+| 产物 | 提供什么 |
+| --- | --- |
+| `PrivateSignerKit` | v3 配置、项目/版本/Profile 发现、项目签名与通用签名 Job、delivery links、OTA URL。 |
+| `PrivateSignerSelfUpdate` | Worker 驱动的 `SelfUpdateCoordinator`、当前 ProjectVersion 续签、已安装签名检查。 |
+| `PrivateSignerUI` | SwiftUI 配置、自更新、Profile Picker，以及可选的通用 IPA 签名界面。 |
 
 ## 安装
 
 ```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.2.0")
+.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.3.0")
 ```
 
-**锁精确版本。** 自更新链路一旦坏掉，是没法靠自更新修回来的。
+请锁精确版本。`0.3.0` 是破坏性的 bug 修复版本，只支持 v3 Worker。
 
-## 接入
-
-读 **[docs/client-integration-guide.zh-CN.md](docs/client-integration-guide.zh-CN.md)** ——
-它按可被 AI agent 逐步执行的方式编写，末尾有能实际运行的验收断言。
-[英文规范源](docs/client-integration-guide.md)。
-
-## 最小自更新示例
+## 最小项目自更新
 
 ```swift
 import PrivateSignerKit
@@ -51,17 +45,15 @@ let store = SignerConfigurationStore(
 
 let coordinator = SelfUpdateCoordinator(
     store: store,
-    releaseSource: GitHubReleaseSource(
-        repository: "owner/name",
-        assetNameTemplate: "MyApp-{tag}-unsigned.ipa",
-        userAgent: "MyApp/\(currentVersion)"
-    ),
+    projectID: "my-app",
     currentVersion: currentVersion,
     userAgent: "MyApp/\(currentVersion)"
 )
 
 if let candidate = try await coordinator.checkForUpdate() {
-    var result = try await coordinator.requestSignedBuild(of: candidate)   // .installedApp
+    let profiles = try await coordinator.availableProfiles()
+    let profileID = profiles.first(where: \.isDefault)?.id ?? profiles.first?.id
+    var result = try await coordinator.requestSignedBuild(of: candidate, profileID: profileID)
     while result.job.isActive {
         try await Task.sleep(nanoseconds: 5_000_000_000)
         result = try await coordinator.refresh(jobID: result.job.jobID)
@@ -72,24 +64,17 @@ if let candidate = try await coordinator.checkForUpdate() {
 }
 ```
 
-## 两个容易踩的坑
+这个流程里 unsigned IPA URL 不会进入 SDK。
 
-**Stable Configuration Group。** 在 split 签名下，默认 Keychain access group 会随 provisioning
-profile 变化，所以依赖默认组的 App 每自更新一次就丢一次配置。必须显式指定一个组，并让每个签名请求
-都带上它 —— `SelfUpdateCoordinator` 会自动做这件事。详见指南 §3。
+## 文档
 
-**原地升级 vs 并排副本。** `SelfUpdateTarget` 有两个 case 而不是一个可选 Bundle ID，因为传错的后果
-是桌面上多一个图标、旧版本还在跑，而用户会以为更新成功了。详见指南 §6。
+- [接入指南](docs/client-integration-guide.zh-CN.md) · [English](docs/client-integration-guide.md)
+- [API 参考](docs/api-reference.zh-CN.md) · [English](docs/api-reference.md)
+- [v3 契约说明](docs/v3-contract.zh-CN.md) · [English](docs/v3-contract.md)
 
-## API 参考
+## v3 已删除的旧假设
 
-完整公开接口，附带每个尖角背后的理由：[docs/api-reference.zh-CN.md](docs/api-reference.zh-CN.md)。
+`/v2`、`GitHubReleaseSource`、`ReleaseSource`、`SignerUIContext.defaultProfileID` 以及具有特殊意义的
+`personal-main` 都不再属于本版本。
 
-## 领域模型
-
-本包用到的术语定义在 [CONTEXT.zh-CN.md](CONTEXT.zh-CN.md)，与签名服务自己的术语表逐字一致。
-
-## 验证状态
-
-CI 在每次推送时编译本包并跑单元测试。**CI 无法证明签名后的 IPA 能装到真机上。**
-真机的安装、升级、多开副本验证是最终验收关卡，必须由人拿着手机完成。
+CI 会编译包并运行单元测试；真机安装/升级仍是最终验收关卡。
