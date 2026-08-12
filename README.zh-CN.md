@@ -2,33 +2,27 @@
 
 [English](README.md) · **简体中文**
 
-一个供 iOS/iPadOS 使用的 [Private IPA Signer](https://github.com/nnnmdzz/private-signer) Swift 客户端。
-v3 契约把项目、源版本和签名 Profile 的权威状态全部放到 Worker。
+供 iOS/iPadOS 使用的 [Private IPA Signer](https://github.com/nnnmdzz/private-signer) Swift 客户端。SDK 只维护 **一个服务契约：v2**。
 
-## v3 契约
+## 契约
 
-项目型 App 只编译一个稳定的 `projectID`。App **不再**自行查 GitHub Release、不携带 unsigned IPA URL、
-也不硬编码 provisioning profile ID。Worker 返回当前 `ProjectVersion` 和该 Principal 可使用的 Profile，SDK
-只请求签这个不可变版本。
+项目型 App 只编译稳定的 `projectID`。App 不自行查 GitHub Release、不携带 unsigned IPA URL，也不硬编码 provisioning Profile ID。Worker 维护项目/版本目录和 allowed/default Profile 策略，SDK 只请求签指定的 `ProjectVersion`。
 
-任意 URL/本地 IPA 签名仍保留，但属于另一种能力；Principal 必须明确拥有 `generic-url-sign` 或
-`upload-sign` scope。
+项目发现、Profile 发现、项目签名、通用 URL/upload 签名、Job history 和 delivery link 全部统一使用 `/v2/*`，并使用 App 配置中现有的同一个 `SIGNING_REQUEST_TOKEN`。
+
+不再有第二套客户端 Token。`personal-main` 没有任何特殊意义；Profile ID 全部来自 Worker discovery。
 
 ## 三个产物
 
 | 产物 | 提供什么 |
 | --- | --- |
-| `PrivateSignerKit` | v3 配置、项目/版本/Profile 发现、项目签名与通用签名 Job、delivery links、OTA URL。 |
+| `PrivateSignerKit` | v2 配置、项目/版本/Profile 发现、项目与通用签名 Job、delivery links、OTA URL。 |
 | `PrivateSignerSelfUpdate` | Worker 驱动的 `SelfUpdateCoordinator`、当前 ProjectVersion 续签、已安装签名检查。 |
 | `PrivateSignerUI` | SwiftUI 配置、自更新、Profile Picker，以及可选的通用 IPA 签名界面。 |
 
 ## 安装
 
-```swift
-.package(url: "https://github.com/nnnmdzz/private-signer-ios.git", exact: "0.3.0")
-```
-
-请锁精确版本。`0.3.0` 是破坏性的 bug 修复版本，只支持 v3 Worker。
+App 应固定到已验收的 immutable tag 或 commit；开发阶段优先使用固定 revision，不使用浮动版本范围。
 
 ## 最小项目自更新
 
@@ -64,17 +58,12 @@ if let candidate = try await coordinator.checkForUpdate() {
 }
 ```
 
-这个流程里 unsigned IPA URL 不会进入 SDK。
+这个自更新流程中 unsigned IPA URL 不会进入 SDK。
 
 ## 文档
 
 - [接入指南](docs/client-integration-guide.zh-CN.md) · [English](docs/client-integration-guide.md)
 - [API 参考](docs/api-reference.zh-CN.md) · [English](docs/api-reference.md)
-- [v3 契约说明](docs/v3-contract.zh-CN.md) · [English](docs/v3-contract.md)
-
-## v3 已删除的旧假设
-
-`/v2`、`GitHubReleaseSource`、`ReleaseSource`、`SignerUIContext.defaultProfileID` 以及具有特殊意义的
-`personal-main` 都不再属于本版本。
+- [v2 契约说明](docs/v2-contract.zh-CN.md) · [English](docs/v2-contract.md)
 
 CI 会编译包并运行单元测试；真机安装/升级仍是最终验收关卡。
