@@ -14,6 +14,12 @@ jobs:
   test:
     name: Build and test (macOS host)
     runs-on: [self-hosted, macOS, ARM64]
+    # A self-hosted runner is a machine in someone's house. On a public repository, a workflow
+    # that runs on pull requests will happily run a stranger's code on it — this is the first
+    # thing GitHub's own documentation warns about. A pull request from a fork gets no runner
+    # here; one from a branch of this repository, which only people with write access can push,
+    # does.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +35,12 @@ jobs:
   ios:
     name: Typecheck for iOS
     runs-on: [self-hosted, macOS, ARM64]
+    # A self-hosted runner is a machine in someone's house. On a public repository, a workflow
+    # that runs on pull requests will happily run a stranger's code on it — this is the first
+    # thing GitHub's own documentation warns about. A pull request from a fork gets no runner
+    # here; one from a branch of this repository, which only people with write access can push,
+    # does.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 
