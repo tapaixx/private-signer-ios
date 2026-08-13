@@ -13,7 +13,7 @@ concurrency:
 jobs:
   test:
     name: Build and test (macOS host)
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +28,7 @@ jobs:
 
   ios:
     name: Typecheck for iOS
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
 
